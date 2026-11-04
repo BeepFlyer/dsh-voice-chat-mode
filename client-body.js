@@ -711,6 +711,7 @@
       if (this.speaking) {
         this.queue = this.queue.slice(this.index).concat(parts);
         this.index = 0;
+        this.pump();
         return;
       }
       this.queue = parts;
@@ -821,6 +822,7 @@
       this.abort = null;
       this.pauseTimer = null;
       this.cache = new Map();
+      this.inflight = new Set();
       this.epoch = 0;
     }
 
@@ -865,11 +867,7 @@
       this.currentText = sentence;
       var slot = this.index;
       this.index += 1;
-      if (CONFIG.ttsEdgePrefetch) {
-        for (var ahead = 0; ahead < 2; ahead += 1) {
-          if (this.index + ahead < this.queue.length) this.prefetch(this.queue[this.index + ahead]);
-        }
-      }
+      this.pump();
       var epoch = this.epoch;
       this.fetchSentence(sentence)
         .then(function (blob) {
@@ -896,15 +894,34 @@
     EdgePlayer.prototype.prefetch = function (sentence) {
       var self = this;
       if (this.cache.has(sentence)) return;
+      if (this.inflight.has(sentence)) return;
+      this.inflight.add(sentence);
       this.fetchSentence(sentence)
         .then(function (blob) {
           self.cache.set(sentence, blob);
-          while (self.cache.size > 8) {
+          while (self.cache.size > 12) {
             var oldest = self.cache.keys().next().value;
             self.cache.delete(oldest);
           }
         })
-        .catch(function () {});
+        .catch(function () {})
+        .finally(function () {
+          self.inflight.delete(sentence);
+          self.pump();
+        });
+    };
+
+    // 读到哪里就并行取到哪里：窗口 6 段、同时在飞 3 条，结果进缓存等播放。
+    EdgePlayer.prototype.pump = function () {
+      if (!CONFIG.ttsEdgePrefetch) return;
+      var window = 6;
+      var limit = 3;
+      for (var cursor = this.index; cursor < this.queue.length && cursor < this.index + window; cursor += 1) {
+        if (this.inflight.size >= limit) return;
+        // 正在念/正在取的那一段已经由 startNext 负责，不再重复请求。
+        if (this.speaking && this.queue[cursor] === this.currentText) continue;
+        this.prefetch(this.queue[cursor]);
+      }
     };
 
     EdgePlayer.prototype.fetchSentence = function (sentence) {
@@ -1057,9 +1074,12 @@
       }
     };
 
-    EdgePlayer.prototype.cancel = function () {
+    EdgePlayer.prototype.cancel = function (keepCache) {
       this.finish();
-      this.cache.clear();
+      if (keepCache !== true) {
+        this.cache.clear();
+        this.inflight.clear();
+      }
     };
 
     EdgePlayer.prototype.remainingText = function () {
@@ -1106,8 +1126,8 @@
       this.edge.append(text);
     };
 
-    VoiceSpeaker.prototype.cancel = function () {
-      this.edge.cancel();
+    VoiceSpeaker.prototype.cancel = function (keepCache) {
+      this.edge.cancel(keepCache);
       this.system.cancel();
     };
 
@@ -1392,8 +1412,8 @@
     };
 
     // 播放：MVP 只有 TTS；stopPlayback 也承担“硬关闭时停播”的钩子。
-    VoiceEngine.prototype.stopPlayback = function () {
-      if (this.speaker) this.speaker.cancel();
+    VoiceEngine.prototype.stopPlayback = function (keepCache) {
+      if (this.speaker) this.speaker.cancel(keepCache);
     };
 
     VoiceEngine.prototype.onSpeakingChange = function (speaking) {
@@ -2024,7 +2044,7 @@
           this.bargeInRemainder = this.speaker.remainingText();
           this.logEvent('tts', 'barge-in: paused with ' + String(this.bargeInRemainder.length) + ' chars left');
         }
-        this.stopPlayback();
+        this.stopPlayback(CONFIG.ttsBargeIn === true);
       }
       this.captureFrom = Math.max(0, this.totalSamples - this.preRollSamples() - this.speechSamples());
       this.captureStartAt = now() - CONFIG.minSpeechMs;
