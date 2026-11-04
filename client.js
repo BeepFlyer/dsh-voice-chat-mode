@@ -3013,7 +3013,24 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       );
     }
 
-    // ── 输入框旁的语音主按钮：纯图标 ──
+    // ── 输入框旁的语音主按钮：纯图标 + 状态动效 ──
+    var MIC_ANIM_CSS = [
+      '@keyframes vm-breathe { 0% { transform: scale(1); opacity: .42 } 70% { opacity: 0 } 100% { transform: scale(1.38); opacity: 0 } }',
+      '@keyframes vm-pulse { 0% { transform: scale(1); opacity: .6 } 100% { transform: scale(calc(1.16 + var(--vm-level, 0) * 0.6)); opacity: 0 } }',
+      '@keyframes vm-dot { 0%, 100% { opacity: .35; transform: scale(.85) } 50% { opacity: 1; transform: scale(1.1) } }',
+      '@keyframes vm-dots { 0%, 80%, 100% { opacity: .18; transform: translateY(0) } 40% { opacity: 1; transform: translateY(-1.5px) } }',
+      '@media (prefers-reduced-motion: reduce) { .vm-ring, .vm-dot { animation: none !important } }'
+    ].join('\n');
+
+    var MIC_RING = {
+      position: 'absolute',
+      inset: -4,
+      borderRadius: '50%',
+      border: '1.5px solid',
+      pointerEvents: 'none',
+      display: 'block'
+    };
+
     function VoiceMicIcon(props) {
       var engine = props.engine;
       var t = props.t;
@@ -3062,17 +3079,105 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       var state = snapshot.state;
       var active = state !== STATE.OFF && state !== STATE.BLOCKED;
       var color = COLOR[state] || COLOR.OFF;
-      var label = snapshot.speaking ? t('toggle.speaking') : active ? t('toggle.listening') : t('toggle.off');
+      var capturing = state === STATE.CAPTURING;
+      var listening = state === STATE.LISTENING || state === STATE.ARMING;
+      var busy = state === STATE.TRANSCRIBING || state === STATE.SUBMITTING;
+      var speaking = snapshot.speaking;
+      var level = Math.max(0, Math.min(1, snapshot.level || 0));
+      var energy = Math.min(1, level * 6);
+
+      var label = speaking ? t('toggle.speaking') : capturing ? t('toggle.capturing') : active ? t('toggle.listening') : t('toggle.off');
       if (state === STATE.BLOCKED) label = t('toggle.blocked') + (snapshot.reason ? ': ' + t(snapshot.reason) : '');
-      var iconNodes = snapshot.speaking
-        ? [
-            React.createElement('rect', { key: 'stop', x: 7, y: 7, width: 10, height: 10, rx: 2, fill: 'currentColor' })
-          ]
-        : [
-            React.createElement('rect', { key: 'capsule', x: 9, y: 2.5, width: 6, height: 11, rx: 3 }),
-            React.createElement('path', { key: 'arc', d: 'M5.5 11a6.5 6.5 0 0 0 13 0' }),
-            React.createElement('line', { key: 'stem', x1: 12, y1: 17.5, x2: 12, y2: 21 })
-          ];
+
+      var rings = [];
+      if (active && !busy) {
+        rings.push(
+          React.createElement('span', {
+            key: 'ring-1',
+            className: 'vm-ring',
+            style: Object.assign({}, MIC_RING, {
+              borderColor: color,
+              animation: (capturing ? 'vm-pulse 1s' : 'vm-breathe 2.4s') + ' ease-out infinite'
+            })
+          }),
+          React.createElement('span', {
+            key: 'ring-2',
+            className: 'vm-ring',
+            style: Object.assign({}, MIC_RING, {
+              borderColor: color,
+              animation: (capturing ? 'vm-pulse 1s' : 'vm-breathe 2.4s') + ' ease-out infinite',
+              animationDelay: capturing ? '-0.5s' : '-1.2s'
+            })
+          })
+        );
+      }
+
+      var glyph = null;
+      if (busy) {
+        var dots = [];
+        for (var dotIndex = 0; dotIndex < 3; dotIndex += 1) {
+          dots.push(
+            React.createElement('span', {
+              key: 'dot-' + dotIndex,
+              style: {
+                width: 3,
+                height: 3,
+                borderRadius: '50%',
+                background: 'currentColor',
+                display: 'inline-block',
+                animation: 'vm-dots 1.1s ease-in-out infinite',
+                animationDelay: dotIndex * 0.16 + 's'
+              }
+            })
+          );
+        }
+        glyph = React.createElement('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 2.5 } }, dots);
+      } else if (speaking) {
+        glyph = React.createElement(
+          'svg',
+          { viewBox: '0 0 24 24', width: 14, height: 14, fill: 'none', stroke: 'currentColor', strokeWidth: 2 },
+          React.createElement('rect', { x: 7, y: 7, width: 10, height: 10, rx: 2, fill: 'currentColor', stroke: 'none' })
+        );
+      } else if (capturing) {
+        var bars = [];
+        var nowMs = Date.now();
+        for (var barIndex = 0; barIndex < 4; barIndex += 1) {
+          var wave = Math.max(0, Math.sin(nowMs / 95 + barIndex * 1.6));
+          var barHeight = 3 + energy * 11 * (0.45 + 0.55 * wave);
+          bars.push(
+            React.createElement('span', {
+              key: 'bar-' + barIndex,
+              style: {
+                width: 2.5,
+                height: Math.round(barHeight),
+                borderRadius: 1.5,
+                background: 'currentColor',
+                display: 'inline-block',
+                transition: 'height 90ms linear'
+              }
+            })
+          );
+        }
+        glyph = React.createElement('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 2, height: 15 } }, bars);
+      } else {
+        glyph = React.createElement(
+          'svg',
+          {
+            viewBox: '0 0 24 24',
+            width: 16,
+            height: 16,
+            fill: 'none',
+            stroke: 'currentColor',
+            strokeWidth: 2,
+            strokeLinecap: 'round',
+            strokeLinejoin: 'round'
+          },
+          React.createElement('rect', { x: 9, y: 2.5, width: 6, height: 11, rx: 3 }),
+          React.createElement('path', { d: 'M5.5 11a6.5 6.5 0 0 0 13 0' }),
+          React.createElement('line', { x1: 12, y1: 17.5, x2: 12, y2: 21 })
+        );
+      }
+
       return React.createElement(
         'button',
         {
@@ -3086,35 +3191,27 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
           onPointerLeave: clearPress,
           onClick: onClick,
           style: {
+            position: 'relative',
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
             width: 30,
             height: 30,
             padding: 0,
-            borderRadius: 8,
+            borderRadius: 9,
             border: '1px solid ' + (active ? color : 'var(--dsw-alias-border-l2)'),
             background: active ? 'color-mix(in srgb, ' + color + ' 12%, transparent)' : 'transparent',
             color: active ? color : 'var(--dsw-alias-label-secondary)',
             cursor: 'pointer',
             touchAction: 'none',
-            userSelect: 'none'
+            userSelect: 'none',
+            transform: capturing ? 'scale(1.04)' : 'scale(1)',
+            transition: 'transform 140ms ease, border-color 160ms ease, background 160ms ease',
+            '--vm-level': String(energy)
           }
         },
-        React.createElement(
-          'svg',
-          {
-            viewBox: '0 0 24 24',
-            width: 16,
-            height: 16,
-            fill: 'none',
-            stroke: 'currentColor',
-            strokeWidth: 2,
-            strokeLinecap: 'round',
-            strokeLinejoin: 'round'
-          },
-          iconNodes
-        )
+        rings,
+        glyph
       );
     }
 
@@ -3154,7 +3251,16 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
           }
         },
         React.createElement('span', {
-          style: { width: 8, height: 8, borderRadius: '50%', background: color, display: 'inline-block', flex: '0 0 auto' }
+          className: 'vm-dot',
+          style: {
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            background: color,
+            display: 'inline-block',
+            flex: '0 0 auto',
+            animation: state !== STATE.OFF ? 'vm-dot 1.8s ease-in-out infinite' : undefined
+          }
         }),
         React.createElement(
           'span',
@@ -3960,6 +4066,15 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
           engine = new VoiceEngine(c);
           c.effect(function () {
             return c.locale.register(NS, { zh: ZH, en: EN });
+          });
+          c.effect(function () {
+            var style = document.createElement('style');
+            style.setAttribute('data-voice-mode', 'mic-anim');
+            style.textContent = MIC_ANIM_CSS;
+            document.head.appendChild(style);
+            return function () {
+              style.remove();
+            };
           });
           c.slots.inject('conversation.session.header.utilities', function () {
             return c.slots.register(
