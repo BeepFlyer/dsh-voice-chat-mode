@@ -1405,6 +1405,11 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       this.currentText = sentence;
       var slot = this.index;
       this.index += 1;
+      if (CONFIG.ttsEdgePrefetch) {
+        for (var ahead = 0; ahead < 2; ahead += 1) {
+          if (this.index + ahead < this.queue.length) this.prefetch(this.queue[this.index + ahead]);
+        }
+      }
       var epoch = this.epoch;
       this.fetchSentence(sentence)
         .then(function (blob) {
@@ -1535,7 +1540,9 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
         this.finish();
         return;
       }
-      if (CONFIG.ttsPauseMs > 0) {
+      // 下一段还没取回来时，网络等待已经构成停顿，不再额外加句间静音。
+      var waitingForFetch = CONFIG.ttsEdgePrefetch === true && this.cache.has(this.queue[this.index]) !== true;
+      if (CONFIG.ttsPauseMs > 0 && !waitingForFetch) {
         if (this.pauseTimer !== null) clearTimeout(this.pauseTimer);
         this.pauseTimer = setTimeout(function () {
           self.pauseTimer = null;
