@@ -2,7 +2,7 @@
 
 给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）加一个**语音聊天模式**：说话自动触发录音、自动转写、自动提交；助手回复用 Edge TTS 或系统语音念出来（支持口播稿协议）。复用 DSH 内置语音栈做识别，只额外加一层很薄的 Host 路由（Edge TTS 与模型控制工具）。
 
-> 状态：可用（v0.4.9）。Windows 10 + DSH Desktop 实测：说话→本地转写→自动提交→Edge TTS 播报闭环；设置页卡片化 + 右侧预览；模型可用 `voice_mode` 工具主动开麦/说话。
+> 状态：可用（v0.5.0）。Windows 10 + DSH Desktop 实测：说话→本地转写→自动提交→Edge TTS 播报闭环；设置页卡片化 + 右侧预览；模型可用 `voice_mode` 工具主动开麦/说话。
 
 ## English summary
 
@@ -182,6 +182,18 @@ plugin_manager action=install_bundle target=<本目录绝对路径>
 ```
 plugin_manager action=remove_bundle target=dsh-voice-chat-mode
 ```
+
+## AI 怎么知道这个插件（v0.5.0）
+
+插件装进 DSH 后，任何 agent 不需要读 README 也能按约定工作，靠三个模型可见面：
+
+1. **系统提示词节** `plugin:voice-chat-mode`（order 3200）：说明 `[语音] ` 开头的用户消息是口述转写、回复可以用 `[voice-note]: <…>` 块控制朗读、不要给打字消息加口播稿；
+2. **动态状态上下文** `plugin:voice-chat-mode`（order 215）：每一步注入一行 `state=LISTENING, speaking=no` 之类的当前状态（来自浏览器每 1.5s 回报）；
+3. **`voice_mode` 工具**：enable / disable / speak / status；调用会等到窗口真正应用（≤2.5s）再返回 `applied`，不再是"已入队"。
+
+反面：设置页、顶栏按钮、诊断日志都是**人看的 UI**，模型看不到；模型能依赖的只有上面三项。工作区的 `AGENTS.md` 口播规则仍然有用，但已不是必需——提示词节会兜底。
+
+补一句给维护者：提示词节与状态上下文在 Host 半身 `index.js` 注册（`ctx.systemPrompt.section/context`），改文案时保持"行为描述、不写实现细节"，也不要和工具描述重复。
 
 ## 给其他用户安装（分发）
 

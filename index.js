@@ -242,19 +242,53 @@ async function handleControl(request) {
   return Response.json({ ok: true }, { headers: { 'cache-control': 'no-store' } });
 }
 
+const VOICE_MODE_PROMPT = [
+  'The DSH window may run the voice-chat-mode plugin, which listens through the microphone and reads replies aloud. Facts you can rely on:',
+  '- A user message whose text starts with `[语音] ` was spoken aloud and transcribed locally; treat it as an ordinary request.',
+  '- Your reply may be spoken. To control what is read, put one or more blocks like `[voice-note]: <one to three spoken sentences>` on their own lines where each applies; the plugin speaks them in order and hides them from the rendered chat. Keep each block plain prose: no Markdown, code, URLs, lists, or emoji. Without any block the plugin may read the opening sentences of your reply.',
+  '- Add `[voice-note]` blocks only when the user message was voice-dictated; never to typed messages.',
+  '- Use the `voice_mode` tool only when the user explicitly asks to listen, speak, or stop.'
+].join('\n');
+
+function voiceStateText() {
+  if (clientStatus === null) return 'Voice chat mode (plugin): no DSH window has reported state yet.';
+  const state = String(clientStatus.state || 'OFF');
+  const speaking = clientStatus.speaking === true ? 'yes' : 'no';
+  return `Voice chat mode (plugin): state=${state}, speaking=${speaking}.`;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForClient(predicate, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (clientStatus !== null && predicate(clientStatus)) return true;
+    await sleep(100);
+  }
+  return clientStatus !== null && predicate(clientStatus);
+}
+
 const voiceModeTool = {
   name: 'voice_mode',
   description: [
-    'Control the local voice-chat plugin running in the open DSH window.',
-    'Use it only when the user asks for hands-free/automated voice interaction (for example "open the microphone and call me").',
-    'Actions: enable (open the microphone in the currently open session), disable (close it), speak (read text aloud with the configured TTS engine), status (report what the window last said).',
-    'Commands are queued and applied by the browser within about 1.5 seconds; the returned status is the window report from its latest poll, not a synchronous result.'
+    'Control the voice-chat plugin in the open DSH window.',
+    'enable starts listening in the current session; disable stops listening and any playback; speak reads text aloud now; status reports the window state.',
+    'Use it only when the user asks for hands-free or automated voice interaction.'
   ].join(' '),
   parameters: {
     type: 'object',
     properties: {
-      action: { type: 'string', enum: ['enable', 'disable', 'speak', 'status'], description: 'Voice-chat operation to perform.' },
-      text: { type: 'string', description: 'Text to read aloud, required for speak; at most 500 characters.' }
+      action: {
+        type: 'string',
+        enum: ['enable', 'disable', 'speak', 'status'],
+        description: 'enable = start listening; disable = stop; speak = read `text` aloud; status = current state.'
+      },
+      text: {
+        type: 'string',
+        description: 'Spoken text for speak: 1-500 characters, plain prose, no Markdown or URLs.'
+      }
     },
     required: ['action'],
     additionalProperties: false
@@ -269,15 +303,27 @@ const voiceModeTool = {
       throw new Error('voice_mode: unknown action');
     }
     if (action === 'status') {
-      return { status: clientStatus, pending: controlQueue.length, note: clientStatus === null ? 'no client has reported yet (open or refresh the DSH window)' : 'status from the latest client poll' };
+      return { status: clientStatus, pending: controlQueue.length, note: clientStatus === null ? 'no DSH window has reported yet' : 'latest window state' };
     }
     let text;
     if (action === 'speak') {
       text = args && typeof args.text === 'string' ? args.text.trim() : '';
       if (text === '') throw new Error('voice_mode: speak requires non-empty text');
+      if (text.length > 500) throw new Error('voice_mode: speak text is longer than 500 characters');
     }
     const command = enqueueCommand(action, text);
-    return { queued: true, action, commandId: command.id, applyWithinMs: 1500, status: clientStatus };
+    const applied = await waitForClient((status) => {
+      if (action === 'enable') return status.state !== undefined && status.state !== 'OFF' && status.state !== 'ARMING';
+      if (action === 'disable') return status.state === 'OFF';
+      return status.speaking === true;
+    }, 2500);
+    return {
+      action,
+      applied,
+      commandId: command.id,
+      state: clientStatus === null ? null : clientStatus.state,
+      speaking: clientStatus !== null && clientStatus.speaking === true
+    };
   }
 };
 
@@ -302,5 +348,9 @@ export function apply(ctx) {
   });
   ctx.inject(['tools'], (c) => {
     c.effect(() => c.tools.register(voiceModeTool));
+  });
+  ctx.inject(['systemPrompt'], (c) => {
+    c.effect(() => c.systemPrompt.section({ name: 'plugin:voice-chat-mode', order: 3200, text: VOICE_MODE_PROMPT }));
+    c.effect(() => c.systemPrompt.context({ name: 'plugin:voice-chat-mode', order: 215, text: () => voiceStateText() }));
   });
 }
