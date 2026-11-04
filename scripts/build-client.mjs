@@ -53,6 +53,8 @@ const spec = remoteLines
 fs.closeSync(fd);
 
 const body = fs.readFileSync(path.join(pkgDir, 'client-body.js'), 'utf8');
+const pkg = JSON.parse(fs.readFileSync(path.join(pkgDir, 'package.json'), 'utf8'));
+if (typeof pkg.name !== 'string' || pkg.name === '') throw new Error('package.json has no name');
 
 const header = `// ─────────────────────────────────────────────────────────────
 // 语音聊天模式 · 客户端模块（覆盖 ui-voice-input 行的实现）
@@ -72,7 +74,7 @@ const header = `// ────────────────────�
 //   运行 scripts/build-client.mjs 重新生成本文件。
 // ─────────────────────────────────────────────────────────────
 window.__ModuleLoader__.load({
-  id: '@local/dsh-voice-mode',
+  id: ${JSON.stringify(pkg.name)},
   factory(require) {
     'use strict';
     const React = require('react');

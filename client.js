@@ -16,7 +16,7 @@
 //   运行 scripts/build-client.mjs 重新生成本文件。
 // ─────────────────────────────────────────────────────────────
 window.__ModuleLoader__.load({
-  id: '@local/dsh-voice-mode',
+  id: "dsh-voice-chat-mode",
   factory(require) {
     'use strict';
     const React = require('react');
