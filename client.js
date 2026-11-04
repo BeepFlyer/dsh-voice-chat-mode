@@ -2804,9 +2804,9 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       OFF: '#8b8f96',
       ARMING: '#d4a017',
       LISTENING: '#2f9e44',
-      CAPTURING: '#e03131',
-      TRANSCRIBING: '#1971c2',
-      SUBMITTING: '#1971c2',
+      CAPTURING: '#0c8599',
+      TRANSCRIBING: '#f08c00',
+      SUBMITTING: '#7048e8',
       BLOCKED: '#868e96'
     };
 
@@ -3143,22 +3143,27 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
         var nowMs = Date.now();
         for (var barIndex = 0; barIndex < 4; barIndex += 1) {
           var wave = Math.max(0, Math.sin(nowMs / 95 + barIndex * 1.6));
-          var barHeight = 3 + energy * 11 * (0.45 + 0.55 * wave);
+          var barHeight = 5 + energy * 11 * (0.4 + 0.6 * wave);
           bars.push(
             React.createElement('span', {
               key: 'bar-' + barIndex,
               style: {
-                width: 2.5,
+                width: 3,
                 height: Math.round(barHeight),
                 borderRadius: 1.5,
                 background: 'currentColor',
                 display: 'inline-block',
-                transition: 'height 90ms linear'
+                transition: 'height 90ms linear',
+                opacity: 0.65 + 0.35 * energy
               }
             })
           );
         }
-        glyph = React.createElement('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 2, height: 15 } }, bars);
+        glyph = React.createElement(
+          'span',
+          { style: { display: 'inline-flex', alignItems: 'flex-end', justifyContent: 'center', gap: 2, height: 16 } },
+          bars
+        );
       } else {
         glyph = React.createElement(
           'svg',
