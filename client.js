@@ -896,6 +896,11 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       'f.blurExitMs': '失焦自动退出',
       'f.blurExitMs.hint': '窗口失焦这么久后自动关闭（分钟）；填 0 = 不因失焦退出。',
       'f.blurExitMs.disabledHint': '未开启「后台/失焦时继续监听」时窗口一被遮挡就会停麦，这个时长实际不生效。',
+      'f.ttsEnabled.disabledHint': '先开启「语音回复」，这一组参数才有意义。',
+      'f.ttsScope.disabledHint': '播报范围设为「关闭」时不会朗读，这些参数不生效。',
+      'f.ttsEngine.mismatchHint': '当前播报引擎用不到这个参数。',
+      'f.ttsSkipOpener.disabledHint': '只有「前 3 句」范围才跳过开场白。',
+      'f.ttsBargeIn.disabledHint': '未开启「播报时忽略麦克风触发」时，说话本来就能随时插话。',
       'f.listenWhileHidden': '后台/失焦时继续监听（麦克风）',
       'f.listenWhileHidden.hint': '只管麦克风：开启后窗口被遮挡/最小化也继续采集；默认关。注意别和下面的「失焦/隐藏时继续播报」混淆。',
       'f.longPressMs': '长按插话阈值',
@@ -1041,6 +1046,11 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       'f.blurExitMs': 'Blur exit',
       'f.blurExitMs.hint': 'Turn off after the window stays unfocused this long (minutes); 0 = never exit on blur.',
       'f.blurExitMs.disabledHint': 'With background listening off, an occluded window stops the microphone right away, so this delay has no effect.',
+      'f.ttsEnabled.disabledHint': 'Turn on voice replies first; the rest of this group has no effect until then.',
+      'f.ttsScope.disabledHint': 'With the read-aloud scope set to off nothing is spoken, so these values do not apply.',
+      'f.ttsEngine.mismatchHint': 'The current engine does not use this parameter.',
+      'f.ttsSkipOpener.disabledHint': 'Only the first-3-sentences scope skips the opening line.',
+      'f.ttsBargeIn.disabledHint': 'With microphone suppression off, speaking can always interrupt; this switch does nothing.',
       'f.listenWhileHidden': 'Keep listening in background (microphone)',
       'f.listenWhileHidden.hint': 'Microphone only: keep capturing when the window is occluded or minimized; off by default. Not the same as the playback option below.',
       'f.longPressMs': 'Long-press threshold',
@@ -3142,26 +3152,63 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
         return null;
       }
 
+      function inertFieldReason(field) {
+        var key = field.key;
+        if (key === 'blurExitMs' && values.listenWhileHidden !== true) return 'f.blurExitMs.disabledHint';
+        if (key.indexOf('tts') !== 0 || key === 'ttsEnabled') return null;
+        if (values.ttsEnabled !== true) return 'f.ttsEnabled.disabledHint';
+        if (key !== 'ttsScope' && values.ttsScope === 'off') return 'f.ttsScope.disabledHint';
+        var systemOnly = ['ttsRate', 'ttsPauseMs', 'ttsPitch', 'ttsVolume', 'ttsVoice'];
+        var edgeOnly = [
+          'ttsEdgeVoice',
+          'ttsEdgeRate',
+          'ttsEdgePitch',
+          'ttsEdgeVolume',
+          'ttsEdgePrefetch',
+          'ttsFallbackToSystem',
+          'ttsEdgeTimeoutMs'
+        ];
+        if (values.ttsEngine === 'edge' && systemOnly.indexOf(key) >= 0) return 'f.ttsEngine.mismatchHint';
+        if (values.ttsEngine === 'system' && edgeOnly.indexOf(key) >= 0) return 'f.ttsEngine.mismatchHint';
+        if (key === 'ttsSkipOpener' && values.ttsScope !== 'head3') return 'f.ttsSkipOpener.disabledHint';
+        if (key === 'ttsBargeIn' && values.ttsSuppressDuringSpeech !== true) return 'f.ttsBargeIn.disabledHint';
+        return null;
+      }
+
       function renderRow(field) {
+        var inertReason = inertFieldReason(field);
+        var inert = inertReason !== null;
+        var dimControl = { opacity: 0.45, cursor: 'not-allowed' };
         var hintText = t('f.' + field.key + '.hint');
         var hintKey = 'f.' + field.key + '.hint';
         var hintNode =
           hintText && hintText !== hintKey
             ? React.createElement('div', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', marginTop: 2 } }, hintText)
             : null;
-        var labelNode = React.createElement('span', { style: { color: 'var(--dsw-alias-label-primary)' } }, t('f.' + field.key));
+        var labelNode = React.createElement(
+          'span',
+          { style: { color: inert ? 'var(--dsw-alias-label-secondary)' : 'var(--dsw-alias-label-primary)' } },
+          t('f.' + field.key)
+        );
         var content = null;
         if (field.boolean) {
           content = React.createElement(
             'label',
-            { style: Object.assign({}, SETTINGS_ROW, { gridTemplateColumns: '190px 120px 1fr', cursor: 'pointer' }) },
+            {
+              style: Object.assign({}, SETTINGS_ROW, {
+                gridTemplateColumns: '190px 120px 1fr',
+                cursor: inert ? 'not-allowed' : 'pointer'
+              })
+            },
             labelNode,
             React.createElement('input', {
               type: 'checkbox',
               checked: values[field.key] === true,
+              disabled: inert,
               onChange: function (event) {
                 commitBoolean(field, event.target.checked);
-              }
+              },
+              style: inert ? dimControl : undefined
             }),
             React.createElement('span')
           );
@@ -3177,10 +3224,11 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
               'select',
               {
                 value: values[field.key],
+                disabled: inert,
                 onChange: function (event) {
                   commitOption(field, event.target.value);
                 },
-                style: SETTINGS_INPUT
+                style: inert ? Object.assign({}, SETTINGS_INPUT, dimControl) : SETTINGS_INPUT
               },
               optionNodes
             ),
@@ -3202,10 +3250,11 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
               'select',
               {
                 value: values[field.key] || '',
+                disabled: inert,
                 onChange: function (event) {
                   commitVoice(event.target.value);
                 },
-                style: SETTINGS_INPUT
+                style: inert ? Object.assign({}, SETTINGS_INPUT, dimControl) : SETTINGS_INPUT
               },
               voiceOptions
             ),
@@ -3214,7 +3263,6 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
         } else {
           var display = field.minutes ? Math.round(values[field.key] / 60000) : values[field.key];
           var unit = field.minutes ? t('unit.minutes') : field.unit || '';
-          var numericDisabled = field.key === 'blurExitMs' && values.listenWhileHidden !== true;
           content = React.createElement(
             'div',
             { style: SETTINGS_ROW },
@@ -3225,16 +3273,16 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
               min: field.min,
               max: field.max,
               step: field.step,
-              disabled: numericDisabled,
+              disabled: inert,
               onChange: function (event) {
                 commitField(field, event.target.value);
               },
-              style: numericDisabled ? Object.assign({}, SETTINGS_INPUT, { opacity: 0.45, cursor: 'not-allowed' }) : SETTINGS_INPUT
+              style: inert ? Object.assign({}, SETTINGS_INPUT, dimControl) : SETTINGS_INPUT
             }),
             React.createElement('span', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)' } }, unit)
           );
         }
-        if (field.key === 'blurExitMs' && values.listenWhileHidden !== true) {
+        if (inertReason !== null) {
           hintNode = React.createElement(
             'div',
             null,
@@ -3242,11 +3290,12 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
             React.createElement(
               'div',
               { style: { fontSize: 11, color: 'var(--dsw-alias-state-warn-primary)', marginTop: 2 } },
-              t('f.blurExitMs.disabledHint')
+              t(inertReason)
             )
           );
         }
         return React.createElement('div', { key: field.key, style: { padding: '3px 0' } }, content, hintNode);
+
       }
 
       function renderMarkerRow() {
@@ -3508,7 +3557,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
           hint: 'section.input.hint',
           accent: 'var(--dsw-alias-brand-primary)',
           main: ['energyThreshold', 'silenceMs', 'preRollMs'],
-          advanced: ['minSpeechMs', 'cooldownMs', 'maxSeconds', 'minChars', 'maxFailures']
+          advanced: ['minSpeechMs', 'cooldownMs', 'maxSeconds', 'minChars', 'maxFailures', 'longPressMs']
         },
         {
           key: 'exit',
