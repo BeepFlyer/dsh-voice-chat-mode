@@ -775,6 +775,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       'chip.BLOCKED': '语音',
       'chip.SPEAKING': '播报中',
       'toggle.speaking': '正在播报（点击停止）',
+      'toggle.statusHint': '语音状态；在输入框旁开关麦克风',
       'ttsToggle.on': '语音回复：开（点击静音）',
       'ttsToggle.off': '语音回复：关（点击打开）',
       'ttsToggle.shortOn': '朗读',
@@ -926,6 +927,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       'chip.BLOCKED': 'Voice',
       'chip.SPEAKING': 'Speaking',
       'toggle.speaking': 'Speaking (click to stop)',
+      'toggle.statusHint': 'Voice state; toggle the microphone beside the composer',
       'ttsToggle.on': 'Voice replies: on (click to mute)',
       'ttsToggle.off': 'Voice replies: off (click to enable)',
       'ttsToggle.shortOn': 'Read',
@@ -2993,6 +2995,52 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       );
     }
 
+    // ── 顶栏状态显示：只读，开关在输入框旁 ──
+    function VoiceStatusChip(props) {
+      var engine = props.engine;
+      var t = props.t;
+      var snapshot = useEngineSnapshot(engine);
+      var state = snapshot.state;
+      var color = COLOR[state] || COLOR.OFF;
+      var chipKey = snapshot.speaking ? 'chip.SPEAKING' : 'chip.' + state;
+      var text = t(chipKey);
+      function onClick() {
+        if (snapshot.speaking) engine.stopPlayback();
+      }
+      return React.createElement(
+        'button',
+        {
+          type: 'button',
+          title: t('toggle.statusHint'),
+          'aria-label': t('toggle.statusHint') + ': ' + (text && text !== chipKey ? text : ''),
+          onClick: onClick,
+          style: {
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '5px 9px',
+            minHeight: 26,
+            borderRadius: 999,
+            border: '1px solid var(--dsw-alias-border-l1)',
+            background: 'var(--dsw-alias-bg-layer-2)',
+            color: 'var(--dsw-alias-label-secondary)',
+            cursor: snapshot.speaking ? 'pointer' : 'default',
+            font: 'inherit',
+            lineHeight: 1,
+            userSelect: 'none'
+          }
+        },
+        React.createElement('span', {
+          style: { width: 8, height: 8, borderRadius: '50%', background: color, display: 'inline-block', flex: '0 0 auto' }
+        }),
+        React.createElement(
+          'span',
+          { style: { fontSize: 12, whiteSpace: 'nowrap' } },
+          text && text !== chipKey ? text : ''
+        )
+      );
+    }
+
     // ── 朗读静音键：只控制“助手回复自动朗读”，工具 speak 不受影响 ──
     function VoiceTtsToggle(props) {
       var engine = props.engine;
@@ -3794,14 +3842,14 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
             return c.slots.register(
               {
                 name: 'conversation.session.header.utilities',
-                id: 'voice-mode-toggle',
+                id: 'voice-mode-status',
                 order: -2,
                 locale: NS,
                 inject: function () {
                   return { engine: engine };
                 }
               },
-              VoiceToggle
+              VoiceStatusChip
             );
           });
           c.slots.inject('conversation.session.header.utilities', function () {
@@ -3816,6 +3864,20 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
                 }
               },
               VoiceTtsToggle
+            );
+          });
+          c.slots.inject('conversation.input.right', function () {
+            return c.slots.register(
+              {
+                name: 'conversation.input.right',
+                id: 'voice-mode-mic',
+                order: 20,
+                locale: NS,
+                inject: function () {
+                  return { engine: engine };
+                }
+              },
+              VoiceToggle
             );
           });
           c.slots.inject('settings.section', function () {
