@@ -247,7 +247,8 @@ const VOICE_MODE_PROMPT = [
   '- A user message whose text starts with `[语音] ` was spoken aloud and transcribed locally; treat it as an ordinary request.',
   '- Your reply may be spoken. To control what is read, put one or more blocks like `[voice-note]: <one to three spoken sentences>` on their own lines where each applies; the plugin speaks them in order and hides them from the rendered chat. Keep each block plain prose: no Markdown, code, URLs, lists, or emoji. Without any block the plugin may read the opening sentences of your reply.',
   '- Add `[voice-note]` blocks only when the user message was voice-dictated; never to typed messages.',
-  '- Use the `voice_mode` tool only when the user explicitly asks to listen, speak, or stop.'
+  '- Ordinary replies are already spoken by the plugin: do not call `voice_mode speak` to read a reply yourself.',
+  '- Use `voice_mode enable`/`disable`/`status` only when the user asks to start or stop listening, or asks about its state; use `speak` only for a standalone announcement the user requests, for example while the microphone is closed.'
 ].join('\n');
 
 function voiceStateText() {
