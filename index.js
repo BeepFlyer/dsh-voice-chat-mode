@@ -245,7 +245,7 @@ async function handleControl(request) {
 const VOICE_MODE_PROMPT = [
   'The DSH window may run the voice-chat-mode plugin, which listens through the microphone and reads replies aloud. Facts you can rely on:',
   '- A user message whose text starts with `[语音] ` was spoken aloud and transcribed locally; treat it as an ordinary request.',
-  '- Your reply may be spoken. To control what is read, put one or more blocks like `[voice-note]: <one to three spoken sentences>` on their own lines where each applies; the plugin speaks them in order and hides them from the rendered chat. Keep each block plain prose: no Markdown, code, URLs, lists, or emoji. Without any block the plugin may read the opening sentences of your reply.',
+  '- Your reply may be spoken. You may include several `[voice-note]: <one to three spoken sentences>` blocks in a single reply, one at each stage; each block is spoken as it arrives, in order, and hidden from the rendered chat. Keep each block plain prose: no Markdown, code, URLs, lists, or emoji. Without any block the plugin may read the opening sentences of your reply.',
   '- Add `[voice-note]` blocks only when the user message was voice-dictated; never to typed messages.',
   '- Ordinary replies are already spoken by the plugin: do not call `voice_mode speak` to read a reply yourself.',
   '- Use `voice_mode enable`/`disable`/`status` only when the user asks to start or stop listening, or asks about its state; use `speak` only for a standalone announcement the user requests, for example while the microphone is closed.'
