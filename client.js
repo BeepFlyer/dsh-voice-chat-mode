@@ -2984,6 +2984,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
         'button',
         {
           type: 'button',
+          className: 'vm-mic',
           title: label,
           'aria-label': label,
           'aria-pressed': active,
@@ -3015,17 +3016,24 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
 
     // ── 输入框旁的语音主按钮：纯图标 + 状态动效 ──
     var MIC_ANIM_CSS = [
-      '@keyframes vm-breathe { 0% { transform: scale(1); opacity: .42 } 70% { opacity: 0 } 100% { transform: scale(1.38); opacity: 0 } }',
-      '@keyframes vm-pulse { 0% { transform: scale(1); opacity: .6 } 100% { transform: scale(calc(1.16 + var(--vm-level, 0) * 0.6)); opacity: 0 } }',
+      '@keyframes vm-breathe { 0% { transform: translate(-50%, -50%) scale(1); opacity: .38 } 70% { opacity: 0 } 100% { transform: translate(-50%, -50%) scale(1.55); opacity: 0 } }',
+      '@keyframes vm-pulse { 0% { transform: translate(-50%, -50%) scale(1); opacity: .5 } 100% { transform: translate(-50%, -50%) scale(calc(1.3 + var(--vm-level, 0) * 0.7)); opacity: 0 } }',
       '@keyframes vm-dot { 0%, 100% { opacity: .35; transform: scale(.85) } 50% { opacity: 1; transform: scale(1.1) } }',
       '@keyframes vm-dots { 0%, 80%, 100% { opacity: .18; transform: translateY(0) } 40% { opacity: 1; transform: translateY(-1.5px) } }',
+      '.vm-mic:focus { outline: none }',
+      '.vm-mic:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 2px }',
       '@media (prefers-reduced-motion: reduce) { .vm-ring, .vm-dot { animation: none !important } }'
     ].join('\n');
 
     var MIC_RING = {
       position: 'absolute',
-      inset: -4,
+      left: '50%',
+      top: '50%',
+      width: 38,
+      height: 38,
       borderRadius: '50%',
+      boxSizing: 'border-box',
+      transform: 'translate(-50%, -50%)',
       border: '1.5px solid',
       pointerEvents: 'none',
       display: 'block'
