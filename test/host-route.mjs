@@ -6,7 +6,7 @@ import { apply } from '../index.js';
 const mode = process.argv[2] || 'basic';
 if (mode === 'missing-python') process.env.VOICE_MODE_PYTHON = 'C:/definitely/missing/python.exe';
 
-let captured = null;
+const routes = new Map();
 const ctx = {
   inject(names, callback) {
     callback({
@@ -16,9 +16,22 @@ const ctx = {
       connection: {
         fetch: {
           register(route) {
-            captured = route;
+            routes.set(route.path, route);
             return () => Promise.resolve();
           }
+        }
+      },
+      tools: {
+        register() {
+          return () => {};
+        }
+      },
+      systemPrompt: {
+        section() {
+          return () => {};
+        },
+        context() {
+          return () => {};
         }
       }
     });
@@ -26,8 +39,9 @@ const ctx = {
 };
 
 apply(ctx);
-if (captured === null) throw new Error('route was not registered');
-console.log('route:', captured.path, captured.methods.join(','), 'body:', captured.requestBody);
+const tts = routes.get('/api/voice-mode.tts');
+if (tts === undefined) throw new Error('TTS route was not registered');
+console.log('route:', tts.path, tts.methods.join(','), 'body:', tts.requestBody);
 
 function request(payload, timeoutMs) {
   const body = JSON.stringify(payload);
@@ -37,7 +51,7 @@ function request(payload, timeoutMs) {
     body
   });
   const started = performance.now();
-  return captured.fetch(request).then(async (response) => {
+  return tts.fetch(request).then(async (response) => {
     const elapsed = Math.round(performance.now() - started);
     const buffer = Buffer.from(await response.arrayBuffer());
     return {

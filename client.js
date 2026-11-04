@@ -1439,6 +1439,24 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
         this.cache.delete(sentence);
         return Promise.resolve(cachedBlob);
       }
+      var attempt = 0;
+      function run() {
+        attempt += 1;
+        return self.fetchSentenceOnce(sentence).catch(function (error) {
+          var message = String((error && error.message) || error);
+          // 网络抖动/超时会重试一次；4xx 属于请求本身的问题，重试无意义。
+          if (attempt >= 2 || message.indexOf('http 4') === 0) throw error;
+          self.onLog('edge tts retry after: ' + message);
+          return new Promise(function (resolve) {
+            setTimeout(resolve, 400);
+          }).then(run);
+        });
+      }
+      return run();
+    };
+
+    EdgePlayer.prototype.fetchSentenceOnce = function (sentence) {
+      var self = this;
       var controller = new AbortController();
       this.abort = controller;
       var timer = setTimeout(function () {
@@ -1466,7 +1484,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
                 return {};
               })
               .then(function (body) {
-                throw new Error((body && body.message) || 'http ' + response.status);
+                throw new Error('http ' + response.status + ' ' + String((body && body.message) || ''));
               });
           }
           return response.blob();
