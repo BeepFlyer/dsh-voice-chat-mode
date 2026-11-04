@@ -596,7 +596,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       ttsVolume: 1,
       ttsVoice: '',
       ttsSuppressDuringSpeech: true,
-      ttsBargeIn: false
+      ttsBargeIn: true
     };
 
     var TTS_SCOPES = ['head3', 'tail', 'full', 'short', 'off'];
