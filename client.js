@@ -3016,13 +3016,13 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
 
     // ── 输入框旁的语音主按钮：纯图标 + 状态动效 ──
     var MIC_ANIM_CSS = [
-      '@keyframes vm-breathe { 0% { transform: translate(-50%, -50%) scale(1); opacity: .38 } 70% { opacity: 0 } 100% { transform: translate(-50%, -50%) scale(1.55); opacity: 0 } }',
-      '@keyframes vm-pulse { 0% { transform: translate(-50%, -50%) scale(1); opacity: .5 } 100% { transform: translate(-50%, -50%) scale(calc(1.3 + var(--vm-level, 0) * 0.7)); opacity: 0 } }',
+      '@keyframes vm-glow { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--vm-color) 40%, transparent) } 70% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--vm-color) 0%, transparent) } 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--vm-color) 0%, transparent) } }',
+      '@keyframes vm-glow-loud { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--vm-color) 55%, transparent) } 100% { box-shadow: 0 0 0 calc(4px + var(--vm-level, 0) * 10px) color-mix(in srgb, var(--vm-color) 0%, transparent) } }',
       '@keyframes vm-dot { 0%, 100% { opacity: .35; transform: scale(.85) } 50% { opacity: 1; transform: scale(1.1) } }',
       '@keyframes vm-dots { 0%, 80%, 100% { opacity: .18; transform: translateY(0) } 40% { opacity: 1; transform: translateY(-1.5px) } }',
       '.vm-mic:focus { outline: none }',
       '.vm-mic:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 2px }',
-      '@media (prefers-reduced-motion: reduce) { .vm-ring, .vm-dot { animation: none !important } }'
+      '@media (prefers-reduced-motion: reduce) { .vm-mic, .vm-dot { animation: none !important } }'
     ].join('\n');
 
     var MIC_RING = {
@@ -3098,27 +3098,6 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       if (state === STATE.BLOCKED) label = t('toggle.blocked') + (snapshot.reason ? ': ' + t(snapshot.reason) : '');
 
       var rings = [];
-      if (active && !busy) {
-        rings.push(
-          React.createElement('span', {
-            key: 'ring-1',
-            className: 'vm-ring',
-            style: Object.assign({}, MIC_RING, {
-              borderColor: color,
-              animation: (capturing ? 'vm-pulse 1s' : 'vm-breathe 2.4s') + ' ease-out infinite'
-            })
-          }),
-          React.createElement('span', {
-            key: 'ring-2',
-            className: 'vm-ring',
-            style: Object.assign({}, MIC_RING, {
-              borderColor: color,
-              animation: (capturing ? 'vm-pulse 1s' : 'vm-breathe 2.4s') + ' ease-out infinite',
-              animationDelay: capturing ? '-0.5s' : '-1.2s'
-            })
-          })
-        );
-      }
 
       var glyph = null;
       if (busy) {
@@ -3220,6 +3199,8 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
             userSelect: 'none',
             transform: capturing ? 'scale(1.04)' : 'scale(1)',
             transition: 'transform 140ms ease, border-color 160ms ease, background 160ms ease',
+            animation: active && !busy ? (capturing ? 'vm-glow-loud 1.05s' : 'vm-glow 2.6s') + ' ease-out infinite' : undefined,
+            '--vm-color': color,
             '--vm-level': String(energy)
           }
         },
