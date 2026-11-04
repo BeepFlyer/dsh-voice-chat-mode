@@ -895,6 +895,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       'f.idleExitMs.hint': '这么久没有语音输入就自动关闭（分钟）；填 0 = 不自动退出。',
       'f.blurExitMs': '失焦自动退出',
       'f.blurExitMs.hint': '窗口失焦这么久后自动关闭（分钟）；填 0 = 不因失焦退出。',
+      'f.blurExitMs.disabledHint': '未开启「后台/失焦时继续监听」时窗口一被遮挡就会停麦，这个时长实际不生效。',
       'f.listenWhileHidden': '后台/失焦时继续监听（麦克风）',
       'f.listenWhileHidden.hint': '只管麦克风：开启后窗口被遮挡/最小化也继续采集；默认关。注意别和下面的「失焦/隐藏时继续播报」混淆。',
       'f.longPressMs': '长按插话阈值',
@@ -1039,6 +1040,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       'f.idleExitMs.hint': 'Turn off after this long without voice input (minutes); 0 = never auto-exit.',
       'f.blurExitMs': 'Blur exit',
       'f.blurExitMs.hint': 'Turn off after the window stays unfocused this long (minutes); 0 = never exit on blur.',
+      'f.blurExitMs.disabledHint': 'With background listening off, an occluded window stops the microphone right away, so this delay has no effect.',
       'f.listenWhileHidden': 'Keep listening in background (microphone)',
       'f.listenWhileHidden.hint': 'Microphone only: keep capturing when the window is occluded or minimized; off by default. Not the same as the playback option below.',
       'f.longPressMs': 'Long-press threshold',
@@ -3212,6 +3214,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
         } else {
           var display = field.minutes ? Math.round(values[field.key] / 60000) : values[field.key];
           var unit = field.minutes ? t('unit.minutes') : field.unit || '';
+          var numericDisabled = field.key === 'blurExitMs' && values.listenWhileHidden !== true;
           content = React.createElement(
             'div',
             { style: SETTINGS_ROW },
@@ -3222,12 +3225,25 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
               min: field.min,
               max: field.max,
               step: field.step,
+              disabled: numericDisabled,
               onChange: function (event) {
                 commitField(field, event.target.value);
               },
-              style: SETTINGS_INPUT
+              style: numericDisabled ? Object.assign({}, SETTINGS_INPUT, { opacity: 0.45, cursor: 'not-allowed' }) : SETTINGS_INPUT
             }),
             React.createElement('span', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)' } }, unit)
+          );
+        }
+        if (field.key === 'blurExitMs' && values.listenWhileHidden !== true) {
+          hintNode = React.createElement(
+            'div',
+            null,
+            hintNode,
+            React.createElement(
+              'div',
+              { style: { fontSize: 11, color: 'var(--dsw-alias-state-warn-primary)', marginTop: 2 } },
+              t('f.blurExitMs.disabledHint')
+            )
           );
         }
         return React.createElement('div', { key: field.key, style: { padding: '3px 0' } }, content, hintNode);
@@ -3499,7 +3515,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
           title: 'section.exit',
           hint: 'section.exit.hint',
           accent: 'var(--dsw-alias-state-warn-primary)',
-          main: ['idleExitMs', 'blurExitMs', 'listenWhileHidden'],
+          main: ['listenWhileHidden', 'idleExitMs', 'blurExitMs'],
           advanced: []
         },
         {
