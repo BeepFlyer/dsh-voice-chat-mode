@@ -1,8 +1,8 @@
 # voice-mode · DSH 语音聊天模式插件
 
-给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）加一个**语音聊天模式**：说话自动触发录音、自动转写、自动提交；助手回复用本机 TTS 念出来。纯客户端实现，不改 Host 代码。
+给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）加一个**语音聊天模式**：说话自动触发录音、自动转写、自动提交；助手回复用 Edge TTS 或系统语音念出来（支持口播稿协议）。复用 DSH 内置语音栈做识别，只额外加一层很薄的 Host 路由（Edge TTS 与模型控制工具）。
 
-> 状态：可用（v0.3.0）。语音输入闭环已在 Windows 10 + DSH Desktop 实测；播报引擎 Edge TTS（v0.2.0）；模型可直接控制语音（v0.3.0）。
+> 状态：可用（v0.4.1）。Windows 10 + DSH Desktop 实测：说话→本地转写→自动提交→Edge TTS 播报闭环；设置页卡片化 + 右侧预览；模型可用 `voice_mode` 工具主动开麦/说话。
 
 ## English summary
 
@@ -10,13 +10,28 @@
 
 - always-on VAD listening (`getUserMedia` + AudioContext), automatic recording and transcription through DSH's authenticated `speechToText` remote;
 - automatic submission into the current session (`beginSubmission` + `prompt`, `queue` by default; long-press to `steer`);
-- spoken replies via the system `speechSynthesis`, with per-turn coalescing, sentence splitting, and resumable playback;
+- spoken replies through **Edge TTS** (thin Host route + MP3 playback) or the system `speechSynthesis`, with per-turn coalescing, sentence splitting, prefetch and immediate stop;
+- a `voice_mode` model tool (enable / disable / speak / status) that lets the agent open the microphone or read text in automated flows;
 - explicit `[voice-note]` blocks: the agent may emit several per reply and each is spoken in order;
 - session-scoped state, hard-off paths (toggle / `Esc` / hidden / session switch / refresh), `navigator.locks` arbitration across windows, ~20 tunable settings.
 
-It replaces the built-in `ui-voice-input` row (see the maintenance header in `cordis.patch.yml`), requires the experimental voice-input bundle and prepared models, and installs with `plugin_manager install_bundle`. License: MIT.
+It replaces the built-in `ui-voice-input` row (see the maintenance header in `cordis.patch.yml`), reuses DSH's built-in experimental voice stack for local transcription (models are downloaded per user by DSH, never shipped or shared by this plugin), and adds a thin Host route for Edge TTS plus the `voice_mode` tool. License: MIT.
 
 ---
+
+## 特点（为什么选它）
+
+- **零自建识别服务**：转写直接用 DSH 内置语音栈（本地 SenseVoice + `speechToText`），不需要 API key、不用部署 ASR 服务——代价是必须启用 DSH 的实验语音 bundle；
+- **口播稿优先**：模型用 `[voice-note]: <…>` 显式给出“该念的段落”，一轮可多段、按出现顺序朗读；没有口播稿才回退念正文前 3 句；
+- **双引擎播报**：Edge TTS（8 个中文音色，默认晓伊 +10%）与系统语音一键切换；请求失败自动回退，断网也有声；
+- **模型可控制**：`voice_mode` 工具让模型主动开麦（enable）、关麦（disable）、说话（speak）、查状态（status），适合自动化流程与“边跑边报进度”；
+- **状态归属清晰**：会话级开关、切会话自动恢复、后台/失焦可配置、硬关闭路径明确（`Esc` / hidden / 切会话 / 刷新）；播报中失焦默认不掐断；
+- **轻量**：无运行时 npm 依赖、不额外分发模型（模型由 DSH 语音 bundle 管理）；Host 侧只有一条 `/api` Fetch 路由 + 一个工具；
+- **可维护**：设置页卡片 + 右侧实时试听、依赖自检、诊断日志；覆盖内置行处带维护注释，升级 DSH 时有据可查。
+
+## 与其他语音插件的关系
+
+同类不少（`dsh-voice-mode` 功能最全、`dsh-voice` 偏朗读、`dsh-voice-chat` / `dsh-voice-talk` 偏对话式）。本插件的取舍是**不重复造 ASR/TTS 服务，只把 DSH 内置语音栈接到最顺的交互上**（常驻监听、自动提交、口播稿、模型工具）；对应地，它要求内置实验语音 bundle 可用，也不提供唤醒词、流式字幕、音色克隆这些专项能力。
 
 ## 功能
 
