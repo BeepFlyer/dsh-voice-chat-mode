@@ -114,6 +114,7 @@ console.log('== C. failure falls back ==');
   globalThis.fetch = () => Promise.resolve({ ok: false, status: 503, json: async () => ({ error: 'missing-edge-tts', message: 'edge-tts is not installed' }) });
   const player = makePlayer(events, logs, fallbacks);
   player.append('回退测试一。回退测试二。');
-  await sleep(30);
+  // 先失败一次 → 400ms 后重试 → 再失败 → 回退，因此等久一点再看结果。
+  await sleep(700);
   console.log('fallback payload', JSON.stringify(fallbacks), 'logs', JSON.stringify(logs), 'speaking', player.isSpeaking());
 }
