@@ -56,6 +56,7 @@ await import(dataUrl);
 
 const EdgePlayer = globalThis.__EdgePlayer;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const realFetch = globalThis.fetch;
 
 function makePlayer(events, logs, fallbacks) {
   const player = new EdgePlayer(
@@ -117,4 +118,19 @@ console.log('== C. failure falls back ==');
   // 先失败一次 → 400ms 后重试 → 再失败 → 回退，因此等久一点再看结果。
   await sleep(700);
   console.log('fallback payload', JSON.stringify(fallbacks), 'logs', JSON.stringify(logs), 'speaking', player.isSpeaking());
+  globalThis.fetch = realFetch;
+}
+
+console.log('== D. remaining text for barge-in resume ==');
+{
+  const events = [];
+  const logs = [];
+  const fallbacks = [];
+  const player = makePlayer(events, logs, fallbacks);
+  player.append('第一句。第二句。第三句。');
+  await sleep(40);
+  const remaining = player.remainingText();
+  console.log('remaining', JSON.stringify(remaining), 'isSpeaking', player.isSpeaking());
+  if (!remaining.includes('第二句') || !remaining.includes('第三句')) throw new Error('remaining text lost queued sentences');
+  if (!remaining.includes('第一句')) throw new Error('remaining text lost the sentence in flight');
 }

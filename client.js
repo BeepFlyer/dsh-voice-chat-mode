@@ -845,6 +845,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       'tts.scope.off': '不播',
       'tts.voice.default': '系统默认',
       'notice.restored': '语音模式已恢复',
+      'notice.resumed': '噪声已忽略，继续播报',
       'notice.yielded': '已让出麦克风给另一个 DSH 窗口',
       'notice.sent': '已发送',
       'notice.empty': '没听清，已丢弃',
@@ -997,6 +998,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       'tts.scope.off': 'Off',
       'tts.voice.default': 'System default',
       'notice.restored': 'Voice mode restored',
+      'notice.resumed': 'Noise ignored; playback resumed',
       'notice.yielded': 'Microphone handed to another DSH window',
       'notice.sent': 'Sent',
       'notice.empty': 'Nothing recognized; dropped',
@@ -1224,6 +1226,11 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       return this.voices;
     };
 
+    SystemSpeaker.prototype.remainingText = function () {
+      if (!this.speaking) return '';
+      return String(this.currentText || '') + this.queue.slice(this.index).join('');
+    };
+
     SystemSpeaker.prototype.resolveVoice = function () {
       if (!CONFIG.ttsVoice) return null;
       for (var index = 0; index < this.voices.length; index += 1) {
@@ -1271,6 +1278,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
         return;
       }
       var text = this.queue[this.index];
+      this.currentText = text;
       this.index += 1;
       var utterance = new SpeechSynthesisUtterance(text);
       utterance.rate = CONFIG.ttsRate || 1;
@@ -1322,6 +1330,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       this.queue = [];
       this.index = 0;
       this.utterance = null;
+      this.currentText = null;
       if (this.speaking) {
         this.speaking = false;
         if (typeof this.onChange === 'function') this.onChange(false);
@@ -1393,6 +1402,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
         this.onChange(true);
       }
       var sentence = this.queue[this.index];
+      this.currentText = sentence;
       var slot = this.index;
       this.index += 1;
       var epoch = this.epoch;
@@ -1573,6 +1583,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       this.cancelAudio();
       this.queue = [];
       this.index = 0;
+      this.currentText = null;
       if (this.speaking) {
         this.speaking = false;
         this.onChange(false);
@@ -1582,6 +1593,11 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
     EdgePlayer.prototype.cancel = function () {
       this.finish();
       this.cache.clear();
+    };
+
+    EdgePlayer.prototype.remainingText = function () {
+      if (!this.speaking) return '';
+      return String(this.currentText || '') + this.queue.slice(this.index).join('');
     };
 
     // ── 统一播放器：edge 优先，失败回退系统语音 ──
@@ -1628,6 +1644,15 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       this.system.cancel();
     };
 
+    VoiceSpeaker.prototype.remainingText = function () {
+      // Edge 失败回退系统语音时，后半段在 system 队列里，两段都要接上。
+      var edge = this.edge.remainingText();
+      var system = this.system.remainingText();
+      if (edge === '') return system;
+      if (system === '') return edge;
+      return edge + system;
+    };
+
     // ── 引擎 ──
     function VoiceEngine(ctx) {
       this.ctx = ctx;
@@ -1670,6 +1695,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       this.suspendedByOtherWindow = false;
       this.speaking = false;
       this.suppressUntil = 0;
+      this.bargeInRemainder = null;
       this.sessionRef = null;
       this.eventUnsubscribe = null;
       this.lastEventSeq = 0;
@@ -1836,6 +1862,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       this.generation += 1;
       this.clearIdle();
       this.stopMessageWatch();
+      this.bargeInRemainder = null;
       this.teardownAudio();
       if (!keepPlayback) this.stopPlayback();
       this.releaseLock();
@@ -2224,6 +2251,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       if (this.state !== STATE.OFF && this.state !== STATE.BLOCKED) return;
       if (this.sessionId === null) return;
       // 上一次“失焦继续播”的残余音频，在重新开麦前停掉，避免和麦克风打架。
+      this.bargeInRemainder = null;
       if (this.speaker && this.speaker.isSpeaking()) this.stopPlayback();
       this.busy = true;
       var generation = (this.generation += 1);
@@ -2524,7 +2552,13 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
 
     VoiceEngine.prototype.beginCapture = function () {
       if (this.state !== STATE.LISTENING) return;
-      if (this.speaking) this.stopPlayback();
+      if (this.speaking) {
+        if (CONFIG.ttsBargeIn === true) {
+          this.bargeInRemainder = this.speaker.remainingText();
+          this.logEvent('tts', 'barge-in: paused with ' + String(this.bargeInRemainder.length) + ' chars left');
+        }
+        this.stopPlayback();
+      }
       this.captureFrom = Math.max(0, this.totalSamples - this.preRollSamples() - this.speechSamples());
       this.captureStartAt = now() - CONFIG.minSpeechMs;
       this.lastVoiceAt = now();
@@ -2564,6 +2598,10 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       this.setState(STATE.TRANSCRIBING);
       var samples = this.collectSamples();
       if (samples.length === 0) {
+        if (this.bargeInRemainder !== null) {
+          this.ignoredBargeIn('no samples');
+          return;
+        }
         this.handleFailure('reason.decode', 'no samples');
         return;
       }
@@ -2583,21 +2621,34 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       }
       if (generation !== this.generation) return;
       if (!result || !result.ok) {
+        if (this.bargeInRemainder !== null) {
+          this.ignoredBargeIn('transcribe rejected: ' + describeError(result && result.error));
+          return;
+        }
         this.handleFailure('reason.runtime', 'transcribe rejected: ' + describeError(result && result.error));
         return;
       }
       var durationMs = Math.round((samples.length / this.sampleRate) * 1000);
       var text = ((result.value && result.value.text) || '').trim();
       if (text === '') {
+        if (this.bargeInRemainder !== null) {
+          this.ignoredBargeIn('empty transcript');
+          return;
+        }
         this.handleFailure('notice.empty', 'empty transcript (' + durationMs + 'ms audio)');
         return;
       }
       if (!this.passTextGate(text)) {
+        if (this.bargeInRemainder !== null) {
+          this.ignoredBargeIn('gate rejected: ' + text);
+          return;
+        }
         this.handleFailure('notice.gate', 'gate rejected: ' + text);
         return;
       }
       this.logEvent('transcribed', text.length + ' chars, ' + durationMs + 'ms audio');
       this.failures = 0;
+      this.bargeInRemainder = null;
       var submitted = await this.submitText(text, generation);
       if (generation !== this.generation) return;
       this.interruptFlag = false;
@@ -2615,6 +2666,24 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       if (/^[嗯啊哦呃额唔诶唉哎哈嘿呵好的是吧呀哇噢喔啦咦哟嘛呐呣哼嘻嘿]+$/u.test(cleaned)) return false;
       if (/^(no|nope|uh|um|hmm|hm|oh|ah|eh|yeah|mm)$/i.test(cleaned)) return false;
       return true;
+    };
+
+    VoiceEngine.prototype.resumeBargeIn = function () {
+      if (this.bargeInRemainder === null) return false;
+      var remainder = this.bargeInRemainder;
+      this.bargeInRemainder = null;
+      if (remainder === '') return false;
+      this.logEvent('tts', 'barge-in was noise or filler; resuming playback');
+      this.showNotice('notice.resumed', 'ok');
+      this.speaker.append(remainder);
+      return true;
+    };
+
+    VoiceEngine.prototype.ignoredBargeIn = function (detail) {
+      this.logEvent('voice', 'barge-in ignored: ' + detail);
+      this.failures = 0;
+      this.resumeBargeIn();
+      this.resumeListening();
     };
 
     VoiceEngine.prototype.handleFailure = function (reasonKey, detail) {
