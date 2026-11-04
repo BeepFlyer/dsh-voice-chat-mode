@@ -2455,6 +2455,111 @@
       );
     }
 
+    // ── 输入框旁的语音主按钮：纯图标 ──
+    function VoiceMicIcon(props) {
+      var engine = props.engine;
+      var t = props.t;
+      var snapshot = useEngineSnapshot(engine);
+      var sessionId = props.sessionId;
+      var pressTimer = React.useRef(null);
+      var longFired = React.useRef(false);
+
+      React.useEffect(function () {
+        engine.attach(sessionId);
+        return function () {
+          engine.detach(sessionId);
+        };
+      }, [engine, sessionId]);
+
+      function clearPress() {
+        if (pressTimer.current !== null) {
+          clearTimeout(pressTimer.current);
+          pressTimer.current = null;
+        }
+      }
+
+      function onPointerDown(event) {
+        if (event.button !== undefined && event.button !== 0) return;
+        longFired.current = false;
+        clearPress();
+        pressTimer.current = setTimeout(function () {
+          pressTimer.current = null;
+          longFired.current = true;
+          engine.markInterrupt();
+        }, CONFIG.longPressMs);
+      }
+
+      function onClick() {
+        if (longFired.current) {
+          longFired.current = false;
+          return;
+        }
+        if (snapshot.speaking) {
+          engine.stopPlayback();
+          return;
+        }
+        engine.toggleOrRetry();
+      }
+
+      var state = snapshot.state;
+      var active = state !== STATE.OFF && state !== STATE.BLOCKED;
+      var color = COLOR[state] || COLOR.OFF;
+      var label = snapshot.speaking ? t('toggle.speaking') : active ? t('toggle.listening') : t('toggle.off');
+      if (state === STATE.BLOCKED) label = t('toggle.blocked') + (snapshot.reason ? ': ' + t(snapshot.reason) : '');
+      var iconNodes = snapshot.speaking
+        ? [
+            React.createElement('rect', { key: 'stop', x: 7, y: 7, width: 10, height: 10, rx: 2, fill: 'currentColor' })
+          ]
+        : [
+            React.createElement('rect', { key: 'capsule', x: 9, y: 2.5, width: 6, height: 11, rx: 3 }),
+            React.createElement('path', { key: 'arc', d: 'M5.5 11a6.5 6.5 0 0 0 13 0' }),
+            React.createElement('line', { key: 'stem', x1: 12, y1: 17.5, x2: 12, y2: 21 })
+          ];
+      return React.createElement(
+        'button',
+        {
+          type: 'button',
+          title: label,
+          'aria-label': label,
+          'aria-pressed': active,
+          onPointerDown: onPointerDown,
+          onPointerUp: clearPress,
+          onPointerCancel: clearPress,
+          onPointerLeave: clearPress,
+          onClick: onClick,
+          style: {
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 30,
+            height: 30,
+            padding: 0,
+            borderRadius: 8,
+            border: '1px solid ' + (active ? color : 'var(--dsw-alias-border-l2)'),
+            background: active ? 'color-mix(in srgb, ' + color + ' 12%, transparent)' : 'transparent',
+            color: active ? color : 'var(--dsw-alias-label-secondary)',
+            cursor: 'pointer',
+            touchAction: 'none',
+            userSelect: 'none'
+          }
+        },
+        React.createElement(
+          'svg',
+          {
+            viewBox: '0 0 24 24',
+            width: 16,
+            height: 16,
+            fill: 'none',
+            stroke: 'currentColor',
+            strokeWidth: 2,
+            strokeLinecap: 'round',
+            strokeLinejoin: 'round'
+          },
+          iconNodes
+        )
+      );
+    }
+
     // ── 顶栏状态显示：只读，开关在输入框旁 ──
     function VoiceStatusChip(props) {
       var engine = props.engine;
@@ -3337,7 +3442,7 @@
                   return { engine: engine };
                 }
               },
-              VoiceToggle
+              VoiceMicIcon
             );
           });
           c.slots.inject('settings.section', function () {
