@@ -217,6 +217,10 @@ DSH 的标准分发通道是 **npm 包 + `dsh` 清单**（本仓库 `package.jso
    - 插件页「添加插件」输入包名（即 README 里 `dsh plugin add` 后那段）；
    - 或 `dsh plugin --profile web add dsh-voice-chat-mode`；
 3. 可选：加入**插件市场**——按格式 1 写一份 JSON 索引（name/version/target/registry/元数据），用户在「插件页 → 发现 → 添加索引源」填 URL 即可浏览安装，无需官方审核；
+
+   本仓库已带一份格式 1 索引：`plugin-market-index.json`，可直接添加
+   `https://raw.githubusercontent.com/BeepFlyer/dsh-voice-chat-mode/main/plugin-market-index.json`。
+   当前版本以 **git commit 固定**（仓库根即包目录）；发布 npm 后把 `source` 换成 `{ "type": "npm" }` 即可。
 4. 验证：安装后 `plugin_manager list_plugins` 看行状态、顶栏出现两个按钮、设置页出现「语音聊天模式」。
 
 GitHub 只作为源码与 issue 仓库，DSH 安装器不读 release（Git 地址可作为安装源，但 npm 是标准通道）。
