@@ -2577,8 +2577,12 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
     VoiceEngine.prototype.passTextGate = function (text) {
       if (typeof text !== 'string') return false;
       var trimmed = text.trim();
-      if (trimmed.length < CONFIG.minChars) return false;
-      if (/^[嗯啊哦呃额唔诶唉哎哈嘿呵好的是吧呀哇噢喔啦]+$/.test(trimmed)) return false;
+      // 去掉标点/空白再判断：识别器常把咳嗽识别成 "哎。"，标点会让下面的语气词过滤失效。
+      var cleaned = trimmed.replace(/[\s\p{P}\p{S}]/gu, '');
+      if (cleaned === '') return false;
+      if (cleaned.length < CONFIG.minChars) return false;
+      if (/^[嗯啊哦呃额唔诶唉哎哈嘿呵好的是吧呀哇噢喔啦咦哟嘛呐呣哼嘻嘿]+$/u.test(cleaned)) return false;
+      if (/^(no|nope|uh|um|hmm|hm|oh|ah|eh|yeah|mm)$/i.test(cleaned)) return false;
       return true;
     };
 
