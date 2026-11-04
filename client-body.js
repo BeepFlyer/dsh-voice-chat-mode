@@ -279,8 +279,8 @@
       'f.ttsFallbackToSystem.hint': '断网/超时/接口异常时自动改用本机语音。',
       'f.ttsEdgeTimeoutMs': '单句超时',
       'f.ttsEdgeTimeoutMs.hint': '超过就放弃并回退。',
-      'f.ttsKeepPlayingOnUnfocused': '失焦/隐藏时继续播报',
-      'f.ttsKeepPlayingOnUnfocused.hint': '开启后窗口失焦或被遮挡时，先停麦但让当前播报自然结束。',
+      'f.ttsKeepPlayingOnUnfocused': '失焦/隐藏时继续播报（只影响声音）',
+      'f.ttsKeepPlayingOnUnfocused.hint': '只管播报：窗口失焦/被遮挡时让当前播报自然结束，不决定是否继续听（那是上面那一项）。',
       'f.ttsVoice': '音色',
       'f.ttsVoice.hint': '仅系统引擎使用。',
       'option.edge': 'Edge 神经语音（在线）',
@@ -355,8 +355,8 @@
       'f.idleExitMs.hint': '这么久没有语音输入就自动关闭（分钟）；填 0 = 不自动退出。',
       'f.blurExitMs': '失焦自动退出',
       'f.blurExitMs.hint': '窗口失焦这么久后自动关闭（分钟）；填 0 = 不因失焦退出。',
-      'f.listenWhileHidden': '后台继续监听',
-      'f.listenWhileHidden.hint': '开启后最小化/切标签也继续采集；默认关（hidden 立即停麦）。',
+      'f.listenWhileHidden': '后台/失焦时继续监听（麦克风）',
+      'f.listenWhileHidden.hint': '只管麦克风：开启后窗口被遮挡/最小化也继续采集；默认关。注意别和下面的「失焦/隐藏时继续播报」混淆。',
       'f.longPressMs': '长按插话阈值',
       'f.longPressMs.hint': '按住开关超过它，下一次说话走 steer（毫秒）。'
     };
@@ -423,8 +423,8 @@
       'f.ttsFallbackToSystem.hint': 'Switch to the local voice on network/timeout/API failures.',
       'f.ttsEdgeTimeoutMs': 'Per-sentence timeout',
       'f.ttsEdgeTimeoutMs.hint': 'Give up and fall back after this long.',
-      'f.ttsKeepPlayingOnUnfocused': 'Keep speaking when unfocused',
-      'f.ttsKeepPlayingOnUnfocused.hint': 'When the window loses focus or is occluded, stop the microphone but let the current speech finish.',
+      'f.ttsKeepPlayingOnUnfocused': 'Keep speaking when unfocused (playback only)',
+      'f.ttsKeepPlayingOnUnfocused.hint': 'Playback only: let the current speech finish when the window is unfocused; it does not keep listening for you.',
       'f.ttsVoice': 'Voice',
       'f.ttsVoice.hint': 'Used by the system engine only.',
       'option.edge': 'Edge neural voice (online)',
@@ -499,8 +499,8 @@
       'f.idleExitMs.hint': 'Turn off after this long without voice input (minutes); 0 = never auto-exit.',
       'f.blurExitMs': 'Blur exit',
       'f.blurExitMs.hint': 'Turn off after the window stays unfocused this long (minutes); 0 = never exit on blur.',
-      'f.listenWhileHidden': 'Listen in background',
-      'f.listenWhileHidden.hint': 'Keep capturing when minimized or in a background tab; off by default (hidden stops the microphone).',
+      'f.listenWhileHidden': 'Keep listening in background (microphone)',
+      'f.listenWhileHidden.hint': 'Microphone only: keep capturing when the window is occluded or minimized; off by default. Not the same as the playback option below.',
       'f.longPressMs': 'Long-press threshold',
       'f.longPressMs.hint': 'Holding the toggle longer arms steer for the next utterance (ms).'
     };
