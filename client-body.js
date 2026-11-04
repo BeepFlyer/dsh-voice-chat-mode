@@ -1737,12 +1737,23 @@
       try {
         catalog = await remote.speech.catalog();
       } catch (error) {
-        this.block('runtime', 'reason.runtime', 'catalog ' + describeError(error));
+        var message = describeError(error);
+        if (/definition-unavailable|withdrawn|typert gateway/i.test(message)) {
+          // 典型原因：内置语音输入 bundle 被关掉，Host 的 speech 行没挂载。
+          this.block('prepare', 'reason.prepare', '语音输入 bundle 未启用：' + message);
+        } else {
+          this.block('runtime', 'reason.runtime', 'catalog ' + message);
+        }
         return null;
       }
       if (generation !== this.generation) return null;
       if (!catalog || !catalog.ok) {
-        this.block('runtime', 'reason.runtime', 'catalog rejected: ' + describeError(catalog && catalog.error));
+        var rejected = describeError(catalog && catalog.error);
+        if (/definition-unavailable|withdrawn|typert gateway/i.test(rejected)) {
+          this.block('prepare', 'reason.prepare', '语音输入 bundle 未启用：' + rejected);
+        } else {
+          this.block('runtime', 'reason.runtime', 'catalog rejected: ' + rejected);
+        }
         return null;
       }
       var value = catalog.value;
