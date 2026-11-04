@@ -844,6 +844,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       'tts.scope.off': '不播',
       'tts.voice.default': '系统默认',
       'notice.restored': '语音模式已恢复',
+      'notice.yielded': '已让出麦克风给另一个 DSH 窗口',
       'notice.sent': '已发送',
       'notice.empty': '没听清，已丢弃',
       'notice.gate': '太短或没有内容，已丢弃',
@@ -994,6 +995,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       'tts.scope.off': 'Off',
       'tts.voice.default': 'System default',
       'notice.restored': 'Voice mode restored',
+      'notice.yielded': 'Microphone handed to another DSH window',
       'notice.sent': 'Sent',
       'notice.empty': 'Nothing recognized; dropped',
       'notice.gate': 'Too short or empty; dropped',
@@ -1645,6 +1647,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       this.idleTimer = null;
       this.noticeTimer = null;
       this.lockRelease = null;
+      this.suspendedByOtherWindow = false;
       this.speaking = false;
       this.suppressUntil = 0;
       this.sessionRef = null;
@@ -1755,6 +1758,24 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
 
     VoiceEngine.prototype.isActive = function () {
       return this.state !== STATE.OFF && this.state !== STATE.BLOCKED;
+    };
+
+    // 切到另一个 DSH 窗口时让出麦克风；切回来恢复之前的状态。
+    VoiceEngine.prototype.suspendForOtherWindow = function () {
+      if (!this.isActive()) return false;
+      this.suspendedByOtherWindow = true;
+      this.logEvent('window', 'yielded the microphone to another DSH window');
+      this.showNotice('notice.yielded', 'ok');
+      this.shutdown('other-window');
+      return true;
+    };
+
+    VoiceEngine.prototype.resumeAfterOtherWindow = function () {
+      if (this.suspendedByOtherWindow !== true) return;
+      this.suspendedByOtherWindow = false;
+      if (this.sessionId === null) return;
+      this.logEvent('window', 'back in focus, restoring voice mode');
+      this.arm({ restored: true });
     };
 
     VoiceEngine.prototype.attach = function (sessionId) {
@@ -2096,7 +2117,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
 
     VoiceEngine.prototype.acquireLock = function () {
       var self = this;
-      var name = 'voice-mode:' + this.sessionId;
+      var name = 'voice-mode:mic';
       this.lockError = null;
       if (!navigator.locks || typeof navigator.locks.request !== 'function') {
         this.lockError = 'locks-unavailable';
@@ -3801,6 +3822,70 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
               },
               VoiceSettings
             );
+          });
+          c.effect(function () {
+            var channel = null;
+            try {
+              if (typeof BroadcastChannel === 'function') channel = new BroadcastChannel('voice-mode:window-focus');
+            } catch (_error) {
+              channel = null;
+            }
+            if (channel === null) return undefined;
+            var windowId = Math.random().toString(36).slice(2);
+            var peers = {};
+            var yieldTimer = null;
+            function announce(type) {
+              try {
+                channel.postMessage({ type: type, id: windowId, focused: document.hasFocus(), at: Date.now() });
+              } catch (_error) {}
+            }
+            function anotherWindowFocused() {
+              var now = Date.now();
+              for (var id in peers) {
+                if (Object.prototype.hasOwnProperty.call(peers, id) && peers[id].focused === true && now - peers[id].at < 4000) return true;
+              }
+              return false;
+            }
+            function yieldIfNeeded() {
+              yieldTimer = null;
+              if (document.hasFocus() === true) return;
+              if (engine.isActive() !== true) return;
+              if (anotherWindowFocused() !== true) return;
+              engine.suspendForOtherWindow();
+            }
+            function onMessage(event) {
+              var data = event.data;
+              if (!data || typeof data !== 'object' || data.id === windowId) return;
+              if (data.type !== 'focus' && data.type !== 'blur') return;
+              peers[data.id] = { focused: data.type === 'focus', at: Date.now() };
+              if (data.type === 'focus' && document.hasFocus() !== true) yieldIfNeeded();
+            }
+            function onFocus() {
+              announce('focus');
+              if (yieldTimer !== null) {
+                clearTimeout(yieldTimer);
+                yieldTimer = null;
+              }
+              engine.resumeAfterOtherWindow();
+            }
+            function onBlur() {
+              announce('blur');
+              if (yieldTimer !== null) clearTimeout(yieldTimer);
+              yieldTimer = setTimeout(yieldIfNeeded, 400);
+            }
+            window.addEventListener('focus', onFocus);
+            window.addEventListener('blur', onBlur);
+            channel.addEventListener('message', onMessage);
+            announce('focus');
+            return function () {
+              window.removeEventListener('focus', onFocus);
+              window.removeEventListener('blur', onBlur);
+              channel.removeEventListener('message', onMessage);
+              if (yieldTimer !== null) clearTimeout(yieldTimer);
+              try {
+                channel.close();
+              } catch (_error) {}
+            };
           });
           c.effect(function () {
             var blurTimer = null;
