@@ -799,7 +799,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       'f.ttsSentenceChars.hint': '超长句会按逗号再切。',
       'f.ttsRate': '语速',
       'f.ttsPauseMs': '句间停顿',
-      'f.ttsPauseMs.hint': '相邻两句话之间的停顿，0 为不停。',
+      'f.ttsPauseMs.hint': '相邻两段之间的停顿，Edge 与系统引擎都生效；0 为不停。',
       'f.ttsPitch': '音调',
       'f.ttsPitch.hint': '0 低沉、2 尖细，1 为默认。',
       'f.ttsVolume': '音量',
@@ -950,7 +950,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       'f.ttsSentenceChars.hint': 'Overlong sentences are split at commas.',
       'f.ttsRate': 'Rate',
       'f.ttsPauseMs': 'Pause between sentences',
-      'f.ttsPauseMs.hint': 'Silence inserted between sentences; 0 disables it.',
+      'f.ttsPauseMs.hint': 'Silence between segments for both engines; 0 disables it.',
       'f.ttsPitch': 'Pitch',
       'f.ttsPitch.hint': '0 is low, 2 is high; 1 is the default.',
       'f.ttsVolume': 'Volume',
@@ -3183,7 +3183,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
         if (key.indexOf('tts') !== 0 || key === 'ttsEnabled') return null;
         if (values.ttsEnabled !== true) return 'f.ttsEnabled.disabledHint';
         if (key !== 'ttsScope' && values.ttsScope === 'off') return 'f.ttsScope.disabledHint';
-        var systemOnly = ['ttsRate', 'ttsPauseMs', 'ttsPitch', 'ttsVolume', 'ttsVoice'];
+        var systemOnly = ['ttsRate', 'ttsPitch', 'ttsVolume', 'ttsVoice'];
         var edgeOnly = [
           'ttsEdgeVoice',
           'ttsEdgeRate',
@@ -3608,6 +3608,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
             'ttsMaxChars',
             'ttsSkipOpener',
             'ttsSentenceChars',
+            'ttsPauseMs',
             'ttsEdgePrefetch',
             'ttsFallbackToSystem',
             'ttsEdgeTimeoutMs',
@@ -3615,7 +3616,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
             'ttsSuppressDuringSpeech',
             'ttsBargeIn'
           ],
-          advanced: ['ttsRate', 'ttsPauseMs', 'ttsPitch', 'ttsVolume', 'ttsVoice']
+          advanced: ['ttsRate', 'ttsPitch', 'ttsVolume', 'ttsVoice']
         },
         { key: 'misc', title: 'section.misc', hint: 'section.misc.hint', accent: 'var(--dsw-alias-state-idle-primary)', main: [], advanced: [] }
       ];
