@@ -1,0 +1,36 @@
+# ─────────────────────────────────────────────────────────────
+# 覆盖内置 @deepseek-ai/dsh-experimental-client-ui-voice-input（行 id: ui-voice-input）
+#
+# 为什么必须覆盖（不是并列新插件）：
+#   内置的 client 半身是私有闭包——录音实例、MediaRecorder、AudioContext
+#   都在 registerUi 内部，只用 inject 交给自己注册的 slot 占用者；
+#   没有 provide、没有对外事件。外部拿不到它的开始/结束入口与录音轨道，
+#   两个并列挂载会抢同一支麦克风、出两套录音指示。
+#   → 想改行为，只能整个替换。依据：app.asar 行 968240–968330。
+#
+# 覆盖方式（Loader patch 方言的限制）：
+#   按 id 的 patch 不能改名——`name` 是“断言现有行仍是这个包”，写别的包名会被
+#   视为不匹配而跳过。所以这里用两步：先按 id 把内置行 disabled，
+#   再 insert 一个 dsh-voice-chat-mode 的新行（id: ui-voice-mode）承接行为。
+#   效果等同整行替换，且不会出现两支麦克风。
+#
+# 上游升级时要对照什么：
+#   1) 上面那个包是否改了 slot 名（conversation.input.activity / .left）
+#   2) Remote 方法名是否还是 speech.catalog/follow/prepare/transcribe
+#   3) transcribe 的入参是否仍是 base64 的 16kHz mono PCM16 WAV
+#   4) hidden/blur 策略是否原样（行 967241）
+#   5) 内置行 id 是否仍叫 ui-voice-input（否则 disable 会告警跳过）
+#
+# 失效症状（出现其一，先怀疑覆盖失配）：
+#   · 输入框旁出现两个麦克风
+#   · 开关点了没反应，但顶栏状态点正常
+#   · 转写成功却没填进草稿
+#   · 控制台报 slot 重复注册 / 未知 surface 事件
+# ─────────────────────────────────────────────────────────────
+
+- id: ui-voice-input
+  disabled: true
+
+- insert:
+    - id: ui-voice-mode
+      name: 'dsh-voice-chat-mode'

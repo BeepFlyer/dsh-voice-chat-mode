@@ -1,0 +1,71 @@
+{
+  "name": "dsh-voice-chat-mode",
+  "description": "Voice chat mode for DeepSeek Harness: always-on VAD listening, local speech-to-text, auto submit, and Edge TTS / system read-aloud.",
+  "version": "0.4.1",
+  "license": "MIT",
+  "type": "module",
+  "icon": "./icon.svg",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "client-body.js",
+    "scripts/build-client.mjs",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "dsh-plugin",
+    "voice",
+    "speech",
+    "asr",
+    "tts",
+    "edge-tts",
+    "sensevoice",
+    "voice-mode",
+    "chinese"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BeepFlyer/dsh-voice-chat-mode.git"
+  },
+  "homepage": "https://github.com/BeepFlyer/dsh-voice-chat-mode#readme",
+  "bugs": {
+    "url": "https://github.com/BeepFlyer/dsh-voice-chat-mode/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "dsh": ">=0.2.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "node scripts/build-client.mjs",
+    "verify": "node test/host-route.mjs && node test/edge-player.mjs && node test/tools.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  }
+}
