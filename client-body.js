@@ -2234,7 +2234,7 @@
           this.ignoredBargeIn('empty transcript');
           return;
         }
-        this.handleFailure('notice.empty', 'empty transcript (' + durationMs + 'ms audio)');
+        this.ignoreNoise('empty transcript (' + durationMs + 'ms audio)');
         return;
       }
       if (!this.passTextGate(text)) {
@@ -2242,7 +2242,7 @@
           this.ignoredBargeIn('gate rejected: ' + text);
           return;
         }
-        this.handleFailure('notice.gate', 'gate rejected: ' + text);
+        this.ignoreNoise('gate rejected: ' + text);
         return;
       }
       this.logEvent('transcribed', text.length + ' chars, ' + durationMs + 'ms audio');
@@ -2276,6 +2276,12 @@
       this.showNotice('notice.resumed', 'ok');
       this.speaker.append(remainder);
       return true;
+    };
+
+    // 空转写/纯语气词是噪声的常态结果，不能计入失败次数，否则几分钟就把模式锁死。
+    VoiceEngine.prototype.ignoreNoise = function (detail) {
+      this.logEvent('voice', 'ignored as noise: ' + detail);
+      this.resumeListening();
     };
 
     VoiceEngine.prototype.ignoredBargeIn = function (detail) {
