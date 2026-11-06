@@ -2420,6 +2420,11 @@
       var self = this;
       this.clearIdle();
       if (this.state === STATE.OFF || this.state === STATE.BLOCKED) return;
+      var minutes = CONFIG.idleExitMs > 0 ? Math.round(CONFIG.idleExitMs / 60000) : 0;
+      if (this.lastIdleMinutes !== minutes) {
+        this.lastIdleMinutes = minutes;
+        this.logEvent('idle', minutes > 0 ? 'auto exit after ' + minutes + ' min of silence' : 'idle exit disabled (0 min)');
+      }
       // 0 = 不自动退出，只保留手动关与 hidden/失焦/切会话/刷新。
       if (CONFIG.idleExitMs <= 0) return;
       this.idleTimer = setTimeout(function () {
@@ -4011,7 +4016,10 @@
             var blurTimer = null;
             function onVisibility() {
               // 默认：hidden 立即停麦。开启 listenWhileHidden 后，后台/最小化也继续监听。
-              if (document.hidden && CONFIG.listenWhileHidden !== true) engine.requestDeferredShutdown('hidden');
+              if (document.hidden && CONFIG.listenWhileHidden !== true) {
+                engine.logEvent('window', 'hidden → shutdown requested');
+                engine.requestDeferredShutdown('hidden');
+              }
             }
             function onKeyDown(event) {
               if (event.key !== 'Escape') return;
@@ -4028,6 +4036,7 @@
               if (CONFIG.blurExitMs <= 0) return;
               blurTimer = setTimeout(function () {
                 blurTimer = null;
+                engine.logEvent('window', 'blur timeout → shutdown requested');
                 engine.requestDeferredShutdown('blur');
               }, CONFIG.blurExitMs);
             }
