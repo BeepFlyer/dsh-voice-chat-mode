@@ -1337,7 +1337,7 @@
 
     VoiceEngine.prototype.detach = function (sessionId) {
       if (this.sessionId !== sessionId) return;
-      if (this.isActive() || this.state === STATE.BLOCKED) this.shutdown('switch');
+      if (this.isActive() || this.state === STATE.BLOCKED) this.shutdown('switch', { keepPlayback: true });
       this.sessionId = null;
     };
 
@@ -1765,9 +1765,8 @@
       if (this.busy) return;
       if (this.state !== STATE.OFF && this.state !== STATE.BLOCKED) return;
       if (this.sessionId === null) return;
-      // 上一次“失焦继续播”的残余音频，在重新开麦前停掉，避免和麦克风打架。
+      // 切换会话后旧回复可能还在播：保留它，不因重新开麦而掐断。
       this.bargeInRemainder = null;
-      if (this.speaker && this.speaker.isSpeaking()) this.stopPlayback();
       this.busy = true;
       var generation = (this.generation += 1);
       this.setState(STATE.ARMING);
