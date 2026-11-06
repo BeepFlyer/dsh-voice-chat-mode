@@ -3357,42 +3357,26 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
             alignItems: 'center',
             justifyContent: 'center',
             width: 16,
-            height: 16
+            height: 16,
+            color: color,
+            opacity: active ? 1 : 0.5
           }
         },
         React.createElement(
-          'span',
+          'svg',
           {
-            style: {
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: 14,
-              height: 14,
-              borderRadius: 4,
-              border: '1px solid color-mix(in srgb, ' + color + ' 55%, transparent)',
-              background: 'color-mix(in srgb, ' + color + ' 16%, transparent)',
-              color: color,
-              opacity: active ? 1 : 0.6,
-              boxShadow: active ? '0 0 0 2px color-mix(in srgb, ' + color + ' 22%, transparent)' : 'none'
-            }
+            viewBox: '0 0 24 24',
+            width: 12,
+            height: 12,
+            fill: 'none',
+            stroke: 'currentColor',
+            strokeWidth: 2.2,
+            strokeLinecap: 'round',
+            strokeLinejoin: 'round'
           },
-          React.createElement(
-            'svg',
-            {
-              viewBox: '0 0 24 24',
-              width: 8,
-              height: 8,
-              fill: 'none',
-              stroke: 'currentColor',
-              strokeWidth: 3,
-              strokeLinecap: 'round',
-              strokeLinejoin: 'round'
-            },
-            React.createElement('rect', { x: 9, y: 2.5, width: 6, height: 11, rx: 3 }),
-            React.createElement('path', { d: 'M5.5 11a6.5 6.5 0 0 0 13 0' }),
-            React.createElement('line', { x1: 12, y1: 17.5, x2: 12, y2: 21 })
-          )
+          React.createElement('rect', { x: 9, y: 2.5, width: 6, height: 11, rx: 3 }),
+          React.createElement('path', { d: 'M5.5 11a6.5 6.5 0 0 0 13 0' }),
+          React.createElement('line', { x1: 12, y1: 17.5, x2: 12, y2: 21 })
         )
       );
     }
