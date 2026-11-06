@@ -1,7 +1,7 @@
 {
   "name": "dsh-voice-chat-mode",
   "description": "Voice chat mode for DeepSeek Harness: always-on VAD listening, local speech-to-text, auto submit, and Edge TTS / system read-aloud.",
-  "version": "0.7.6",
+  "version": "0.7.7",
   "license": "MIT",
   "type": "module",
   "icon": "./icon.svg",

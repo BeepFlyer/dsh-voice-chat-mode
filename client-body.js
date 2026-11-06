@@ -541,6 +541,12 @@
       return Date.now();
     }
 
+    function delay(ms) {
+      return new Promise(function (resolve) {
+        setTimeout(resolve, ms);
+      });
+    }
+
     function describeError(error) {
       if (error === null || error === undefined) return 'unknown';
       if (typeof error === 'string') return error;
@@ -1771,9 +1777,9 @@
       if (release !== null) release();
     };
 
-    VoiceEngine.prototype.block = function (kind, reason, detail) {
+    VoiceEngine.prototype.block = function (kind, reason, detail, options) {
       var sessionId = this.sessionId;
-      if (sessionId !== null) this.enabled.delete(sessionId);
+      if (sessionId !== null && !(options && options.keepEnabled)) this.enabled.delete(sessionId);
       this.generation += 1;
       this.clearIdle();
       this.stopMessageWatch();
@@ -1823,10 +1829,20 @@
       var generation = (this.generation += 1);
       this.setState(STATE.ARMING);
       try {
-        var locked = await this.acquireLock();
-        if (generation !== this.generation) return;
+        // 切换会话时上一把锁的释放是异步的：短暂重试，别立刻判成“被别的窗口占用”。
+        var locked = false;
+        for (var lockAttempt = 0; lockAttempt < 5; lockAttempt += 1) {
+          locked = await this.acquireLock();
+          if (generation !== this.generation) return;
+          if (locked) break;
+          this.logEvent('voice', 'lock retry ' + (lockAttempt + 1) + ': ' + (this.lockError || 'busy'));
+          this.releaseLock();
+          await delay(120 + lockAttempt * 80);
+          if (generation !== this.generation) return;
+        }
         if (!locked) {
-          this.block('locked', 'reason.locked', 'locks: ' + (this.lockError || 'held-by-another-window'));
+          // 保留 enabled，切回来或稍后重试还能自动恢复。
+          this.block('locked', 'reason.locked', 'locks: ' + (this.lockError || 'held-by-another-window'), { keepEnabled: true });
           return;
         }
         if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
