@@ -17,3 +17,6 @@ out/
 Thumbs.db
 .vscode/
 .idea/
+
+vendor/python/**/__pycache__/
+vendor/python/**/*.pyc
