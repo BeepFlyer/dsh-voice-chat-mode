@@ -12,6 +12,15 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pkgDir = path.resolve(here, '..');
 const asarPath = process.env.DSH_ASAR || 'G:/Software/DeepSeek Harness/resources/app.asar';
+const checkOnly = process.argv.includes('--check');
+
+if (!fs.existsSync(asarPath)) {
+  if (checkOnly) {
+    console.log(`skip: DSH app.asar not found at ${asarPath}`);
+    process.exit(0);
+  }
+  throw new Error(`DSH app.asar not found at ${asarPath} (set DSH_ASAR)`);
+}
 
 const fd = fs.openSync(asarPath, 'r');
 const meta = Buffer.alloc(16);
@@ -86,5 +95,18 @@ const footer = `  },
 });
 `;
 
-fs.writeFileSync(path.join(pkgDir, 'client.js'), `${header}${helper}\n${spec}\n${body}${footer}`, 'utf8');
+const target = path.join(pkgDir, 'client.js');
+const output = `${header}${helper}\n${spec}\n${body}${footer}`;
+
+if (checkOnly) {
+  const current = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
+  if (current !== output) {
+    console.error('client.js is stale: run `npm run build`');
+    process.exit(1);
+  }
+  console.log('client.js matches client-body.js and the current DSH bundle');
+  process.exit(0);
+}
+
+fs.writeFileSync(target, output, 'utf8');
 console.log('wrote client.js');

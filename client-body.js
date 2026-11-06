@@ -337,6 +337,11 @@
       'deps.edgeMissing': '未安装 edge-tts（将回退系统语音）',
       'deps.edgeUnknown': 'Edge TTS 状态未知',
       'deps.install': '需要时运行：python -m pip install edge-tts',
+      'deps.sourceVendor': '插件自带依赖',
+      'deps.sourceSystem': '系统已安装',
+      'fallback.title': '语音播报已回退到系统语音',
+      'fallback.detail': 'Edge 语音暂时不可用（网络或依赖问题），本次改用系统音色；恢复后会自动用回 Edge。',
+      'fallback.dismiss': '知道了',
       'unit.minutes': '分钟',
       'f.energyThreshold': '触发阈值',
       'f.energyThreshold.hint': '麦克风电平超过它才开始录音；环境吵就调高。',
@@ -490,6 +495,11 @@
       'deps.edgeMissing': 'edge-tts is not installed (falls back to the system voice)',
       'deps.edgeUnknown': 'Edge TTS status unknown',
       'deps.install': 'Install with: python -m pip install edge-tts',
+      'deps.sourceVendor': 'bundled with the plugin',
+      'deps.sourceSystem': 'installed on the system',
+      'fallback.title': 'Speech fell back to the system voice',
+      'fallback.detail': 'Edge TTS is unavailable right now (network or dependency); this reply used the system voice. Edge is used again automatically once it recovers.',
+      'fallback.dismiss': 'Dismiss',
       'unit.minutes': 'min',
       'f.energyThreshold': 'Trigger threshold',
       'f.energyThreshold.hint': 'Recording starts above this microphone level; raise it in noisy rooms.',
@@ -1088,12 +1098,13 @@
     };
 
     // ── 统一播放器：edge 优先，失败回退系统语音 ──
-    function VoiceSpeaker(onChange, onLog) {
+    function VoiceSpeaker(onChange, onLog, onFallbackNotice) {
       this.onChange = onChange;
       this.onLog = onLog;
       var self = this;
       this.system = new SystemSpeaker(onChange);
       this.edge = new EdgePlayer(onChange, onLog, function (text) {
+        if (typeof onFallbackNotice === 'function') onFallbackNotice();
         self.system.append(text);
       });
     }
@@ -1187,6 +1198,7 @@
       this.eventUnsubscribe = null;
       this.lastEventSeq = 0;
       this.ttsRouteInfo = null;
+      this.ttsFallbackAt = null;
       this.pendingSpeeches = [];
       this.lastAssistantTurn = -1;
       this.lastAssistantText = '';
@@ -1196,6 +1208,8 @@
         self.onSpeakingChange(speaking);
       }, function (message) {
         self.logEvent('tts', message);
+      }, function () {
+        self.noteTtsFallback();
       });
 
       this.snapshot = this.buildSnapshot();
@@ -1220,6 +1234,7 @@
         noticeTone: this.noticeTone,
         noticeSeq: this.noticeSeq,
         speaking: this.speaking,
+        ttsFallbackAt: this.ttsFallbackAt,
         ttsEnabled: CONFIG.ttsEnabled === true
       };
     };
@@ -1429,6 +1444,19 @@
 
     VoiceEngine.prototype.isSpeaking = function () {
       return this.speaking;
+    };
+
+    // 播报回退到系统语音时，给用户一个聊天里看得见的提示。
+    VoiceEngine.prototype.noteTtsFallback = function () {
+      this.ttsFallbackAt = Date.now();
+      this.logEvent('tts', 'fallback notice shown to the user');
+      this.publish();
+    };
+
+    VoiceEngine.prototype.clearTtsFallback = function () {
+      if (this.ttsFallbackAt === null) return;
+      this.ttsFallbackAt = null;
+      this.publish();
     };
 
     // 失焦/隐藏触发的关闭：若正在播报且允许“失焦继续播”，先停麦但让播报自然结束。
@@ -2765,6 +2793,74 @@
       );
     }
 
+    // ── 回退提示：Edge 不可用、改用系统语音时在界面里显式告知 ──
+    function VoiceFallbackToast(props) {
+      var engine = props.engine;
+      var t = props.t;
+      var snapshot = useEngineSnapshot(engine);
+      var at = snapshot.ttsFallbackAt;
+      React.useEffect(
+        function () {
+          if (!at) return undefined;
+          var timer = setTimeout(function () {
+            engine.clearTtsFallback();
+          }, 20000);
+          return function () {
+            clearTimeout(timer);
+          };
+        },
+        [at, engine]
+      );
+      if (!at) return null;
+      return React.createElement(
+        'div',
+        {
+          style: {
+            position: 'fixed',
+            left: 18,
+            bottom: 90,
+            zIndex: 60,
+            maxWidth: 340,
+            padding: '10px 12px',
+            borderRadius: 10,
+            border: '1px solid var(--dsw-alias-state-warn-primary)',
+            background: 'var(--dsw-alias-bg-overlay)',
+            color: 'var(--dsw-alias-label-primary)',
+            boxShadow: '0 6px 24px rgba(0,0,0,0.18)',
+            fontSize: 12,
+            lineHeight: 1.5
+          }
+        },
+        React.createElement(
+          'div',
+          { style: { fontWeight: 600, marginBottom: 2, color: 'var(--dsw-alias-state-warn-primary)' } },
+          t('fallback.title')
+        ),
+        React.createElement('div', { style: { color: 'var(--dsw-alias-label-secondary)' } }, t('fallback.detail')),
+        React.createElement(
+          'button',
+          {
+            type: 'button',
+            onClick: function () {
+              engine.clearTtsFallback();
+            },
+            style: {
+              marginTop: 6,
+              padding: '3px 9px',
+              borderRadius: 6,
+              border: '1px solid var(--dsw-alias-border-l2)',
+              background: 'transparent',
+              color: 'var(--dsw-alias-label-primary)',
+              cursor: 'pointer',
+              font: 'inherit',
+              fontSize: 11
+            }
+          },
+          t('fallback.dismiss')
+        )
+      );
+    }
+
     // ── 顶栏状态显示：只读，开关在输入框旁 ──
     function VoiceStatusChip(props) {
       var engine = props.engine;
@@ -3259,10 +3355,11 @@
           return React.createElement('div', { style: { color: 'var(--dsw-alias-state-error-primary)' } }, t('deps.routeError') + ': ' + String(info.error || ''));
         }
         if (info.edgeTts === 'ok') {
+          var sourceLabel = info.edgeTtsSource === 'vendor' ? t('deps.sourceVendor') : info.edgeTtsSource === 'system' ? t('deps.sourceSystem') : '';
           return React.createElement(
             'div',
             { style: { color: 'var(--dsw-alias-state-success-primary)' } },
-            t('deps.edgeReady') + (info.edgeTtsVersion ? ' · ' + info.edgeTtsVersion : '')
+            t('deps.edgeReady') + (info.edgeTtsVersion ? ' · ' + info.edgeTtsVersion : '') + (sourceLabel ? ' · ' + sourceLabel : '')
           );
         }
         if (info.edgeTts === 'missing') {
@@ -3652,6 +3749,20 @@
                 }
               },
               VoiceTtsToggle
+            );
+          });
+          c.slots.inject('shell.overlay', function () {
+            return c.slots.register(
+              {
+                name: 'shell.overlay',
+                id: 'voice-mode-fallback',
+                order: 50,
+                locale: NS,
+                inject: function () {
+                  return { engine: engine };
+                }
+              },
+              VoiceFallbackToast
             );
           });
           c.slots.inject('conversation.input.right', function () {

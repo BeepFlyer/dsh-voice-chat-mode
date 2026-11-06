@@ -2,7 +2,7 @@
 
 给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）加一个**语音聊天模式**：说话自动触发录音、自动转写、自动提交；助手回复用 Edge TTS 或系统语音念出来（支持口播稿协议）。复用 DSH 内置语音栈做识别，只额外加一层很薄的 Host 路由（Edge TTS 与模型控制工具）。
 
-> 状态：可用（v0.6.9）。Windows 10 + DSH Desktop 实测：说话→本地转写→自动提交→Edge TTS 播报闭环；设置页卡片化 + 右侧预览；模型可用 `voice_mode` 工具主动开麦/说话。
+> 状态：可用（v0.7.0）。Windows 10 + DSH Desktop 实测：说话→本地转写→自动提交→Edge TTS 播报闭环；设置页卡片化 + 右侧预览；模型可用 `voice_mode` 工具主动开麦/说话。
 
 ## English summary
 
@@ -183,6 +183,13 @@ plugin_manager action=install_bundle target=<本目录绝对路径>
 ```
 plugin_manager action=remove_bundle target=dsh-voice-chat-mode
 ```
+
+## 依赖自包含（v0.7.0）
+
+- `vendor/python/` 内置 edge-tts 7.3.1 及其依赖（Win + CPython 3.12 轮子，约 3.7 MB）；Host 合成时把它加进 `PYTHONPATH`，**优先用自带依赖**，不碰系统 site-packages。
+- 自带包缺失或与当前 Python 版本不匹配时，Host 会**自动执行一次** `pip install edge-tts --target vendor/python`（无需用户手动装）。
+- 播报回退到系统语音时，界面左下角会**显式弹提示**（20 秒或手动关闭），不再静默降级；设置页依赖状态会标注「插件自带 / 系统已安装」。
+- `npm run check:client` 校验生成物 `client.js` 与 `client-body.js` + 当前 DSH bundle 同步；GitHub Actions `.github/workflows/verify.yml` 在推送/PR 时跑播放器与工具测试（不依赖网络）。
 
 ## AI 怎么知道这个插件（v0.5.0）
 

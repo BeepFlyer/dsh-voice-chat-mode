@@ -1,7 +1,7 @@
 {
   "name": "dsh-voice-chat-mode",
   "description": "Voice chat mode for DeepSeek Harness: always-on VAD listening, local speech-to-text, auto submit, and Edge TTS / system read-aloud.",
-  "version": "0.6.9",
+  "version": "0.7.0",
   "license": "MIT",
   "type": "module",
   "icon": "./icon.svg",
@@ -21,7 +21,8 @@
     "locale/*.json",
     "icon.svg",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "vendor/python/**"
   ],
   "keywords": [
     "dsh",
@@ -53,7 +54,8 @@
   },
   "scripts": {
     "build": "node scripts/build-client.mjs",
-    "verify": "node test/host-route.mjs && node test/edge-player.mjs && node test/tools.mjs"
+    "verify": "node test/host-route.mjs && node test/edge-player.mjs && node test/tools.mjs",
+    "check:client": "node scripts/build-client.mjs --check"
   },
   "dsh": {
     "bundle": {

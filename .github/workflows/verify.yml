@@ -1,0 +1,23 @@
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Player and tool harnesses (no network)
+        run: |
+          node test/edge-player.mjs
+          node test/tools.mjs
+      - name: Generated client freshness
+        run: node scripts/build-client.mjs --check
+      - name: Manifest sanity
+        run: node -e "JSON.parse(require('fs').readFileSync('package.json')); JSON.parse(require('fs').readFileSync('plugin-market-index.json')); console.log('json ok')"

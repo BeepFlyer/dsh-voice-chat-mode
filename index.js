@@ -20,12 +20,17 @@ import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
 const ROUTE_PATH = '/api/voice-mode.tts';
 const CONTROL_PATH = '/api/voice-mode.control';
+const pluginDir = path.dirname(fileURLToPath(import.meta.url));
+// 自带依赖目录：npm 包内包含 edge-tts 及其依赖（vendor/python），
+// 优先用它而不是系统 site-packages，避免 DSH 重建运行时后丢包。
+const vendorDir = path.join(pluginDir, 'vendor', 'python');
 const VOICES = [
   'zh-CN-XiaoxiaoNeural',
   'zh-CN-XiaoyiNeural',
@@ -49,23 +54,60 @@ let pythonPath = null;
 let clientStatus = null;
 let edgeTtsProbe = null;
 
+function pythonEnv() {
+  const env = { ...process.env };
+  if (existsSync(path.join(vendorDir, 'edge_tts'))) {
+    env.PYTHONPATH = env.PYTHONPATH ? vendorDir + path.delimiter + env.PYTHONPATH : vendorDir;
+    env.PYTHONNOUSERSITE = '1';
+  }
+  return env;
+}
+
 async function probeEdgeTts() {
   if (edgeTtsProbe !== null) return edgeTtsProbe;
   try {
     const { stdout } = await execFileAsync(
       resolvePython(),
       ['-c', "import importlib.metadata as m; print(m.version('edge-tts'))"],
-      { timeout: 5000, windowsHide: true }
+      { timeout: 5000, windowsHide: true, env: pythonEnv() }
     );
-    edgeTtsProbe = { status: 'ok', version: String(stdout).trim() };
+    edgeTtsProbe = {
+      status: 'ok',
+      version: String(stdout).trim(),
+      source: existsSync(path.join(vendorDir, 'edge_tts')) ? 'vendor' : 'system'
+    };
   } catch (error) {
     const stderr = String((error && error.stderr) || '');
     edgeTtsProbe =
       /No module named ['"]?edge_tts|PackageNotFoundError|No package metadata/i.test(stderr)
-        ? { status: 'missing', version: null }
-        : { status: 'unknown', version: null };
+        ? { status: 'missing', version: null, source: null }
+        : { status: 'unknown', version: null, source: null };
   }
   return edgeTtsProbe;
+}
+
+// 自带依赖缺失时自动装进插件目录（一次性），用户无需手动 pip。
+let ensureEdgeTtsPromise = null;
+async function ensureEdgeTts() {
+  if (edgeTtsProbe !== null && edgeTtsProbe.status === 'ok') return true;
+  if (ensureEdgeTtsPromise !== null) return ensureEdgeTtsPromise;
+  ensureEdgeTtsPromise = (async () => {
+    try {
+      await execFileAsync(
+        resolvePython(),
+        ['-m', 'pip', 'install', 'edge-tts', '--target', vendorDir, '--no-cache-dir', '--quiet', '--disable-pip-version-check'],
+        { timeout: 240000, windowsHide: true }
+      );
+      edgeTtsProbe = null;
+      const probe = await probeEdgeTts();
+      return probe.status === 'ok';
+    } catch (_error) {
+      return false;
+    } finally {
+      ensureEdgeTtsPromise = null;
+    }
+  })();
+  return ensureEdgeTtsPromise;
 }
 
 function resolvePython() {
@@ -119,26 +161,41 @@ async function synthesize(text, voice, rate, volume, pitch, timeoutMs) {
   const directory = await mkdtemp(path.join(tmpdir(), 'voice-mode-'));
   const media = path.join(directory, 'out.mp3');
   try {
-    await execFileAsync(
-      resolvePython(),
-      [
-        '-m',
-        'edge_tts',
-        '--text',
-        text,
-        '--voice',
-        voice,
-        '--rate',
-        signed(rate, '%'),
-        '--volume',
-        signed(volume, '%'),
-        '--pitch',
-        signed(pitch, 'Hz'),
-        '--write-media',
-        media
-      ],
-      { timeout: timeoutMs, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }
-    );
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await execFileAsync(
+          resolvePython(),
+          [
+            '-m',
+            'edge_tts',
+            '--text',
+            text,
+            '--voice',
+            voice,
+            '--rate',
+            signed(rate, '%'),
+            '--volume',
+            signed(volume, '%'),
+            '--pitch',
+            signed(pitch, 'Hz'),
+            '--write-media',
+            media
+          ],
+          { timeout: timeoutMs, windowsHide: true, maxBuffer: 4 * 1024 * 1024, env: pythonEnv() }
+        );
+        break;
+      } catch (error) {
+        // 首次缺包：自动装进插件自带目录后重试一次，不让用户手装 pip 包。
+        if (
+          attempt === 0 &&
+          (classifyError(error) === 'missing-edge-tts' || /DLL load failed|ImportError|ModuleNotFoundError/i.test(String((error && error.stderr) || ''))) &&
+          (await ensureEdgeTts())
+        ) {
+          continue;
+        }
+        throw error;
+      }
+    }
     const buffer = await readFile(media);
     cache.set(key, buffer);
     while (cache.size > CACHE_LIMIT) {
@@ -161,7 +218,8 @@ async function handleRoute(request) {
         cache: cache.size,
         python: resolvePython(),
         edgeTts: edge.status,
-        edgeTtsVersion: edge.version
+        edgeTtsVersion: edge.version,
+        edgeTtsSource: edge.source
       },
       { headers: { 'cache-control': 'no-store' } }
     );
