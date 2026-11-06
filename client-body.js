@@ -1174,6 +1174,8 @@
       this.generation = 0;
       this.busy = false;
       this.pendingArmOptions = null;
+      this.reconcileTimer = null;
+      this.busyWatchdog = null;
 
       this.stream = null;
       this.audioCtx = null;
@@ -1342,6 +1344,25 @@
           this.arm({ restored: true });
         }
       }
+      this.scheduleReconcile(sessionId, 0);
+    };
+
+    // 自愈：attach 之后若仍停在 OFF/BLOCKED（或 arm 被竞态吞掉），补一次；最多两次。
+    VoiceEngine.prototype.scheduleReconcile = function (sessionId, attempt) {
+      var self = this;
+      if (this.reconcileTimer !== null) clearTimeout(this.reconcileTimer);
+      this.reconcileTimer = setTimeout(function () {
+        self.reconcileTimer = null;
+        if (self.sessionId !== sessionId) return;
+        if (self.enabled.get(sessionId) !== true) return;
+        if (self.state !== STATE.OFF && self.state !== STATE.BLOCKED) return;
+        if (self.busy) {
+          if (attempt < 2) self.scheduleReconcile(sessionId, attempt + 1);
+          return;
+        }
+        self.logEvent('voice', 'reconcile: restoring voice mode for ' + String(sessionId));
+        self.arm({ restored: true });
+      }, 1500);
     };
 
     VoiceEngine.prototype.detach = function (sessionId) {
@@ -1381,6 +1402,10 @@
         this.pendingArmOptions = null;
         if (sessionId !== null) this.enabled.delete(sessionId);
         this.failures = 0;
+      }
+      if (this.reconcileTimer !== null) {
+        clearTimeout(this.reconcileTimer);
+        this.reconcileTimer = null;
       }
       this.steerArmed = false;
       this.interruptFlag = false;
@@ -1782,6 +1807,19 @@
       // 切换会话后旧回复可能还在播：保留它，不因重新开麦而掐断。
       this.bargeInRemainder = null;
       this.busy = true;
+      var self = this;
+      if (this.busyWatchdog !== null) clearTimeout(this.busyWatchdog);
+      this.busyWatchdog = setTimeout(function () {
+        self.busyWatchdog = null;
+        if (self.busy !== true) return;
+        self.logEvent('voice', 'busy watchdog: releasing a stuck arm');
+        self.busy = false;
+        var pending = self.pendingArmOptions;
+        self.pendingArmOptions = null;
+        if (pending !== null && self.sessionId !== null && self.enabled.get(self.sessionId) === true && (self.state === STATE.OFF || self.state === STATE.BLOCKED)) {
+          self.arm(pending);
+        }
+      }, 8000);
       var generation = (this.generation += 1);
       this.setState(STATE.ARMING);
       try {
@@ -1840,6 +1878,10 @@
         if (generation === this.generation) this.block('runtime', 'reason.runtime', 'arm ' + describeError(error));
       } finally {
         this.busy = false;
+        if (this.busyWatchdog !== null) {
+          clearTimeout(this.busyWatchdog);
+          this.busyWatchdog = null;
+        }
         var pending = this.pendingArmOptions;
         this.pendingArmOptions = null;
         if (
