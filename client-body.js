@@ -236,6 +236,8 @@
       'chip.SPEAKING': '播报中',
       'toggle.speaking': '正在播报（点击停止）',
       'toggle.statusHint': '语音状态；在输入框旁开关麦克风',
+      'sessionDot.active': '这个会话正在使用语音模式',
+      'sessionDot.enabled': '这个会话已开启语音模式（切回时自动恢复）',
       'ttsToggle.on': '语音回复：开（点击静音）',
       'ttsToggle.off': '语音回复：关（点击打开）',
       'ttsToggle.shortOn': '朗读',
@@ -394,6 +396,8 @@
       'chip.SPEAKING': 'Speaking',
       'toggle.speaking': 'Speaking (click to stop)',
       'toggle.statusHint': 'Voice state; toggle the microphone beside the composer',
+      'sessionDot.active': 'Voice mode is active in this session',
+      'sessionDot.enabled': 'Voice mode is enabled for this session (restores when switched back)',
       'ttsToggle.on': 'Voice replies: on (click to mute)',
       'ttsToggle.off': 'Voice replies: off (click to enable)',
       'ttsToggle.shortOn': 'Read',
@@ -2792,6 +2796,43 @@
       );
     }
 
+    // ── 侧栏会话行：开了语音模式的会话显示小绿点 ──
+    function VoiceSessionDot(props) {
+      var engine = props.engine;
+      var t = props.t;
+      useEngineSnapshot(engine);
+      var sessionId = props.sessionId;
+      if (sessionId === undefined || sessionId === null) return null;
+      if (engine.enabled.get(sessionId) !== true) return null;
+      var state = engine.state;
+      var mine = engine.sessionId === sessionId;
+      var active = mine && state !== STATE.OFF && state !== STATE.BLOCKED;
+      var color = active ? (state === STATE.CAPTURING ? '#0c8599' : COLOR[state] || '#2f9e44') : '#2f9e44';
+      return React.createElement(
+        'span',
+        {
+          title: active ? t('sessionDot.active') : t('sessionDot.enabled'),
+          style: {
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 16,
+            height: 16
+          }
+        },
+        React.createElement('span', {
+          style: {
+            width: 6,
+            height: 6,
+            borderRadius: '50%',
+            background: color,
+            opacity: active ? 1 : 0.55,
+            boxShadow: active ? '0 0 0 2px color-mix(in srgb, ' + color + ' 25%, transparent)' : 'none'
+          }
+        })
+      );
+    }
+
     // ── 回退提示：Edge 不可用、改用系统语音时在界面里显式告知 ──
     function VoiceFallbackToast(props) {
       var engine = props.engine;
@@ -3748,6 +3789,20 @@
                 }
               },
               VoiceTtsToggle
+            );
+          });
+          c.slots.inject('sidebar.session.row.leading', function () {
+            return c.slots.register(
+              {
+                name: 'sidebar.session.row.leading',
+                id: 'voice-mode-session-dot',
+                order: 20,
+                locale: NS,
+                inject: function () {
+                  return { engine: engine };
+                }
+              },
+              VoiceSessionDot
             );
           });
           c.slots.inject('shell.overlay', function () {
