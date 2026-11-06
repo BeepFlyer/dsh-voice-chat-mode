@@ -2,7 +2,7 @@
 
 给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）加一个**语音聊天模式**：说话自动触发录音、自动转写、自动提交；助手回复用 Edge TTS 或系统语音念出来（支持口播稿协议）。复用 DSH 内置语音栈做识别，只额外加一层很薄的 Host 路由（Edge TTS 与模型控制工具）。
 
-> 状态：可用（v0.7.2）。Windows 10 + DSH Desktop 实测：说话→本地转写→自动提交→Edge TTS 播报闭环；设置页卡片化 + 右侧预览；模型可用 `voice_mode` 工具主动开麦/说话。
+> 状态：可用（v0.7.3）。Windows 10 + DSH Desktop 实测：说话→本地转写→自动提交→Edge TTS 播报闭环；设置页卡片化 + 右侧预览；模型可用 `voice_mode` 工具主动开麦/说话。
 
 ## English summary
 
