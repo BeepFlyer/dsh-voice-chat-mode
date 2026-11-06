@@ -1713,6 +1713,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       this.failures = 0;
       this.generation = 0;
       this.busy = false;
+      this.pendingArmOptions = null;
 
       this.stream = null;
       this.audioCtx = null;
@@ -1875,7 +1876,11 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       if (this.sessionId !== null) this.detach(this.sessionId);
       this.sessionId = sessionId;
       if (this.enabled.get(sessionId) === true) {
-        this.arm({ restored: true });
+        if (this.busy) {
+          this.pendingArmOptions = { restored: true };
+        } else {
+          this.arm({ restored: true });
+        }
       }
     };
 
@@ -1913,6 +1918,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       if (!keepPlayback) this.stopPlayback();
       this.releaseLock();
       if (kind !== 'switch') {
+        this.pendingArmOptions = null;
         if (sessionId !== null) this.enabled.delete(sessionId);
         this.failures = 0;
       }
@@ -2306,7 +2312,11 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
     };
 
     VoiceEngine.prototype.arm = async function (options) {
-      if (this.busy) return;
+      if (this.busy) {
+        // 切换会话时上一个 arm 还没收尾：排队，等它结束后补一次。
+        this.pendingArmOptions = options || {};
+        return;
+      }
       if (this.state !== STATE.OFF && this.state !== STATE.BLOCKED) return;
       if (this.sessionId === null) return;
       // 切换会话后旧回复可能还在播：保留它，不因重新开麦而掐断。
@@ -2370,6 +2380,19 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
         if (generation === this.generation) this.block('runtime', 'reason.runtime', 'arm ' + describeError(error));
       } finally {
         this.busy = false;
+        var pending = this.pendingArmOptions;
+        this.pendingArmOptions = null;
+        if (
+          pending !== null &&
+          this.sessionId !== null &&
+          this.enabled.get(this.sessionId) === true &&
+          (this.state === STATE.OFF || this.state === STATE.BLOCKED)
+        ) {
+          var self = this;
+          setTimeout(function () {
+            self.arm(pending);
+          }, 0);
+        }
       }
     };
 
