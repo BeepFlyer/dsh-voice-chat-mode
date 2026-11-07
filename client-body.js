@@ -2255,6 +2255,14 @@
       this.resumeListening();
     };
 
+    // 噪声黑名单（2026-11-07 实测补充）：
+    //   · 多语模型会把含糊的环境音凑成英文虚词 —— 实测出现过 Okay / Yeah / Thank / The / Go
+    //   · 也会凑成日文假名 —— 实测出现过 よね / きや
+    //   · 但用户会说日语短句（ありがとう 等），所以假名只在「整句纯假名且很短」时才丢。
+    // 判据：整句去掉标点后，要么命中拉丁虚词表，要么是 ≤4 个假名的纯假名词，要么是 ≤3 个字母的零碎。
+    var GATE_LATIN_STOPWORDS = /^(ok|okay|k|kk|oh|ah|eh|uh|um|hmm|hm|mm|mmm|yeah|yea|yep|yes|yup|nah|no|nope|thank|thanks|thx|the|go|wow|well|so|and|but|hi|hey|hello|bye|good|god|my|me|it|is|are|was|am|do|did|not|you|we|us)$/i;
+    var GATE_KANA_SHORT = /^[\u3040-\u309F\u30A0-\u30FF]{2,4}$/;
+
     VoiceEngine.prototype.passTextGate = function (text) {
       if (typeof text !== 'string') return false;
       var trimmed = text.trim();
@@ -2262,8 +2270,14 @@
       var cleaned = trimmed.replace(/[\s\p{P}\p{S}]/gu, '');
       if (cleaned === '') return false;
       if (cleaned.length < CONFIG.minChars) return false;
-      if (/^[嗯啊哦呃额唔诶唉哎哈嘿呵好的是吧呀哇噢喔啦咦哟嘛呐呣哼嘻嘿]+$/u.test(cleaned)) return false;
-      if (/^(no|nope|uh|um|hmm|hm|oh|ah|eh|yeah|mm)$/i.test(cleaned)) return false;
+      // 假名：只在「整句纯假名且 ≤4 个」时才丢（よね / きや）。ありがとう 这种正常短句放行。
+      if (GATE_KANA_SHORT.test(cleaned)) return false;
+      // 纯拉丁字母：命中虚词表，或短于 4 个字母的零碎，都丢。
+      if (/^[A-Za-z]+$/.test(cleaned)) {
+        if (GATE_LATIN_STOPWORDS.test(cleaned)) return false;
+        if (cleaned.length <= 3) return false;
+      }
+      if (/^[嗯啊哦呃额唔诶唉哎哈嘿呵好的是吧呀哇噢喔啦咦哟嘛呐呣哼嘻]+$/u.test(cleaned)) return false;
       return true;
     };
 
