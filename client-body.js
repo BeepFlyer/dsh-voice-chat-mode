@@ -576,13 +576,33 @@
 
     // 助手显式给出的口播稿：`[voice-note]: <内容>`，可在一轮回复里出现多次，
     // 按出现顺序逐段朗读（开始前/工作中/结束时各一段）。
+    //
+    // 清洗：模型偶尔会把字面转义（\n \r \t）和 Markdown 记号写进口播稿，
+    // 直接送 TTS 会被念成「反斜杠 n」。这里统一洗成可念的纯文本。
+    function sanitizeSpeech(raw) {
+      var text = String(raw || '');
+      // 1) 字面转义序列：反斜杠 + 字母 → 空格（\n \r \t \v \f \0 \a \b）
+      text = text.replace(/\\[nrtvf0ab]/gi, ' ');
+      // 2) 残留的孤立反斜杠
+      text = text.replace(/\\+/g, ' ');
+      // 3) Markdown 链接 [文字](地址) → 只留文字
+      text = text.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
+      // 4) 强调 / 代码 / 标题 / 引用记号
+      text = text.replace(/[*_`#>~|]+/g, ' ');
+      // 5) HTML 标签
+      text = text.replace(/<[^>]*>/g, ' ');
+      // 6) 连续空白（含真实换行、制表）压成一个空格
+      text = text.replace(/\s+/g, ' ').trim();
+      return text;
+    }
+
     function extractVoiceBlocks(text) {
       var raw = String(text || '');
       var blocks = [];
       var anglePattern = /^[ \t]*\[voice-note\]:[ \t]*<([\s\S]*?)>[ \t]*$/gim;
       var match = anglePattern.exec(raw);
       while (match !== null) {
-        var angleContent = String(match[1] || '').replace(/\s+/g, ' ').trim();
+        var angleContent = sanitizeSpeech(match[1]);
         if (angleContent !== '') blocks.push(angleContent);
         match = anglePattern.exec(raw);
       }
@@ -590,7 +610,7 @@
       var linePattern = /^[ \t]*\[voice-note\]:[ \t]*(.+)$/gim;
       match = linePattern.exec(raw);
       while (match !== null) {
-        var lineContent = String(match[1] || '').replace(/\s+/g, ' ').trim();
+        var lineContent = sanitizeSpeech(match[1]);
         if (lineContent !== '') blocks.push(lineContent);
         match = linePattern.exec(raw);
       }
@@ -598,7 +618,7 @@
       var commentPattern = /<!--\s*voice\s*([\s\S]*?)-->/gi;
       match = commentPattern.exec(raw);
       while (match !== null) {
-        var content = String(match[1] || '').replace(/\s+/g, ' ').trim();
+        var content = sanitizeSpeech(match[1]);
         if (content !== '') blocks.push(content);
         match = commentPattern.exec(raw);
       }
