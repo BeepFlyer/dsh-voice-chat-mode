@@ -586,6 +586,8 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       ttsFallbackToSystem: true,
       ttsEdgeTimeoutMs: 20000,
       ttsKeepPlayingOnUnfocused: true,
+      // 未开麦时也播报：开着这个，即使模式是 OFF/待机，AI 给出的口播稿照样念出来。
+      ttsSpeakWhenIdle: true,
       ttsScope: 'head3',
       ttsMaxChars: 220,
       ttsSkipOpener: true,
@@ -624,6 +626,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       { key: 'ttsFallbackToSystem', boolean: true },
       { key: 'ttsEdgeTimeoutMs', min: 3000, max: 30000, step: 500, unit: 'ms' },
       { key: 'ttsKeepPlayingOnUnfocused', boolean: true },
+      { key: 'ttsSpeakWhenIdle', boolean: true },
       { key: 'ttsScope', options: TTS_SCOPES },
       { key: 'ttsMaxChars', min: 80, max: 2000, step: 20, unit: '字' },
       { key: 'ttsSkipOpener', boolean: true },
@@ -660,6 +663,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       ttsFallbackToSystem: CONFIG_DEFAULTS.ttsFallbackToSystem,
       ttsEdgeTimeoutMs: CONFIG_DEFAULTS.ttsEdgeTimeoutMs,
       ttsKeepPlayingOnUnfocused: CONFIG_DEFAULTS.ttsKeepPlayingOnUnfocused,
+      ttsSpeakWhenIdle: CONFIG_DEFAULTS.ttsSpeakWhenIdle,
       ttsScope: CONFIG_DEFAULTS.ttsScope,
       ttsMaxChars: CONFIG_DEFAULTS.ttsMaxChars,
       ttsSkipOpener: CONFIG_DEFAULTS.ttsSkipOpener,
@@ -824,6 +828,8 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       'f.ttsEdgeTimeoutMs.hint': '超过就先重试一次，仍失败才回退；默认 20 秒，网络差可再调大。',
       'f.ttsKeepPlayingOnUnfocused': '失焦/隐藏时继续播报（只影响声音）',
       'f.ttsKeepPlayingOnUnfocused.hint': '只管播报：窗口失焦/被遮挡时让当前播报自然结束，不决定是否继续听（那是上面那一项）。',
+      'f.ttsSpeakWhenIdle': '未开麦时也播报',
+      'f.ttsSpeakWhenIdle.hint': '开着它：模式是关闭/待机时，AI 给出的口播稿依然会念出来。关掉它：只有模式运行中才念，其余时候的口播稿先攒着，等开麦再补。',
       'f.ttsVoice': '音色',
       'f.ttsVoice.hint': '仅系统引擎使用。',
       'option.edge': 'Edge 神经语音（在线）',
@@ -984,6 +990,8 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       'f.ttsEdgeTimeoutMs.hint': 'Retry once, then fall back; default 20s, raise it on slow networks.',
       'f.ttsKeepPlayingOnUnfocused': 'Keep speaking when unfocused (playback only)',
       'f.ttsKeepPlayingOnUnfocused.hint': 'Playback only: let the current speech finish when the window is unfocused; it does not keep listening for you.',
+      'f.ttsSpeakWhenIdle': 'Speak even when the mic is off',
+      'f.ttsSpeakWhenIdle.hint': 'On: voice notes are read out even while the mode is off/idle. Off: they are queued and played once you turn the mode back on.',
       'f.ttsVoice': 'Voice',
       'f.ttsVoice.hint': 'Used by the system engine only.',
       'option.edge': 'Edge neural voice (online)',
@@ -1903,6 +1911,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       if (this.sessionId === sessionId) return;
       if (this.sessionId !== null) this.detach(this.sessionId);
       this.sessionId = sessionId;
+      this.maybeWatchMessages();
       if (this.enabled.get(sessionId) === true) {
         if (this.busy) {
           this.pendingArmOptions = { restored: true };
@@ -1959,7 +1968,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       this.logEvent('shutdown', kind + (keepPlayback ? ' (keep playback)' : ''));
       this.generation += 1;
       this.clearIdle();
-      this.stopMessageWatch();
+      this.maybeWatchMessages();
       this.bargeInRemainder = null;
       this.teardownAudio();
       if (!keepPlayback) this.stopPlayback();
@@ -2109,6 +2118,13 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
     VoiceEngine.prototype.queueSpeech = function (speech) {
       if (speech === '') return;
       if (this.state !== STATE.LISTENING) {
+        // 未开麦时也播报：口播稿是给耳朵的，不该因为麦克风没开就被扣下。
+        // 关掉 ttsSpeakWhenIdle 才回到「先攒着、开麦再补」的老行为。
+        if (CONFIG.ttsSpeakWhenIdle === true) {
+          this.logEvent('tts', 'speak while idle ' + speech.length + ' chars');
+          this.speaker.append(speech);
+          return;
+        }
         this.pendingSpeeches.push(speech);
         this.logEvent('tts', 'deferred (state ' + this.state + ')');
         return;
@@ -2127,6 +2143,12 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
         return;
       }
       if (this.lastAssistantText === '') return;
+      // 未开麦时只念显式口播稿，不把正文前几句读出来——那是模式运行中才做的事。
+      if (!this.isActive()) {
+        this.lastAssistantText = '';
+        this.logEvent('tts', 'idle: skip body fallback');
+        return;
+      }
       if (typeof data.turn === 'number' && data.turn !== this.lastAssistantTurn) return;
       var text = this.lastAssistantText;
       this.lastAssistantText = '';
@@ -2275,7 +2297,22 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
         this.stopPlayback();
         return;
       }
-      if (this.isActive()) this.startMessageWatch(this.generation);
+      this.maybeWatchMessages();
+    };
+
+    // 消息监听该不该挂。
+    // 运行中当然要挂；「未开麦时也播报」开着的时候，模式关着也要挂——
+    // 否则连助手消息都收不到，口播稿根本没机会被念出来。
+    VoiceEngine.prototype.maybeWatchMessages = function () {
+      if (!CONFIG.ttsEnabled) {
+        this.stopMessageWatch();
+        return;
+      }
+      if (this.isActive() || CONFIG.ttsSpeakWhenIdle === true) {
+        this.startMessageWatch(this.generation);
+        return;
+      }
+      this.stopMessageWatch();
     };
 
     VoiceEngine.prototype.acquireLock = function () {
@@ -2342,7 +2379,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       if (sessionId !== null && !(options && options.keepEnabled)) this.enabled.delete(sessionId);
       this.generation += 1;
       this.clearIdle();
-      this.stopMessageWatch();
+      this.maybeWatchMessages();
       this.teardownAudio();
       this.stopPlayback();
       this.releaseLock();
@@ -4262,6 +4299,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
             'ttsFallbackToSystem',
             'ttsEdgeTimeoutMs',
             'ttsKeepPlayingOnUnfocused',
+            'ttsSpeakWhenIdle',
             'ttsSuppressDuringSpeech',
             'ttsBargeIn'
           ],
