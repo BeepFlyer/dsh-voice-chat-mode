@@ -13,6 +13,7 @@
 - spoken replies through **Edge TTS** (thin Host route + MP3 playback) or the system `speechSynthesis`, with per-turn coalescing, sentence splitting, prefetch and immediate stop;
 - a `voice_mode` model tool (enable / disable / speak / status) that lets the agent open the microphone or read text in automated flows;
 - explicit `[voice-note]` blocks: the agent may emit several per reply and each is spoken in order;
+- voice notes also play while the mic is off (v0.7.11): assistant messages are watched even when the mode is idle, so `[voice-note]` blocks are read out; body-text fallback stays active only while listening;
 - session-scoped state, hard-off paths (toggle / `Esc` / hidden / session switch / refresh), `navigator.locks` arbitration across windows, ~20 tunable settings.
 
 It replaces the built-in `ui-voice-input` row (see the maintenance header in `cordis.patch.yml`), reuses DSH's built-in experimental voice stack for local transcription (models are downloaded per user by DSH, never shipped or shared by this plugin), and adds a thin Host route for Edge TTS plus the `voice_mode` tool. License: MIT.
@@ -39,6 +40,7 @@ It replaces the built-in `ui-voice-input` row (see the maintenance header in `co
 - **自动提交**：转写文本走会话的 `beginSubmission` + `prompt`，默认 `queue`；长按开关 500ms 可把下一次说话标记为 `steer`（插话）；
 - **语音播报（TTS）**：用系统 `speechSynthesis` 念助手最终回复，默认只念**口播稿**，没有口播稿时回退「前 3 句」；
 - **多段口播**：一条回复可在不同阶段放多段 `[voice-note]`，按出现顺序逐段念；
+- **未开麦也播报**（v0.7.11）：模式是关闭/待机时，显式的口播稿照样念出来——消息监听不再只在模式运行中才挂。只念口播稿，不念正文兜底（那是模式运行中才做的事）。设置页 TTS 组可关，关掉便回到「先攒着、开麦再补」。
 - **打断判定**：播报中被声音触发打断时先记下剩余内容再停播；转写结果为空/纯语气词就恢复播报，只有有效发言才真正打断并提交（v0.6.6）；
 - **会话级状态**：切走会话停麦、切回自动恢复（2 秒提示）；刷新/重载回 `OFF`；
 - **硬关闭**：短按开关 / `Esc` / 切标签 / 刷新；空闲与失焦退出可配（0 = 不自动退出）；**切换会话只停麦，不打断正在播的回复**（v0.7.1）；
@@ -137,6 +139,7 @@ Host 半身注册了一个模型工具 `voice_mode`，并给客户端开了一�
 | 预取下一句 | 开 | 当前句播放时提前合成下一句 |
 | 失败回退系统语音 | 开 | 断网/超时/接口错误时兜底 |
 | 失焦/隐藏时继续播报 | 开 | 失焦或被遮挡时**先停麦**，让当前播报自然结束；`Esc`/关开关仍立即停 |
+| 未开麦时也播报 | 开 | 模式关闭/待机时也念**显式口播稿**；关掉则先攒着、开麦再补（v0.7.11） |
 | 单句超时 | 10000ms | 3000–30000ms |
 | 播报范围 | 前 3 句 | 前 3 句 / 仅末段 / 全文 / 仅短回复 / 不播 |
 | 播报字数上限 | 220 | 超过截断 |
