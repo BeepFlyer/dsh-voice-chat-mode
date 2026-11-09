@@ -2346,6 +2346,12 @@
       if (cleaned.length < CONFIG.minChars) return false;
       // 假名：只在「整句纯假名且 ≤4 个」时才丢（よね / きや）。ありがとう 这种正常短句放行。
       if (GATE_KANA_SHORT.test(cleaned)) return false;
+      // 拉丁虚词 + 零星假名的混合噪声：Yeahう / Okayう / OKです。
+      // 识别器在噪声上常吐这种混合串，假名剥掉后只剩一个短虚词，就是噪声。
+      var withoutKana = cleaned.replace(/[\u3040-\u309F\u30A0-\u30FF]/g, '');
+      if (withoutKana !== cleaned && /^[A-Za-z]+$/.test(withoutKana)) {
+        if (withoutKana.length <= 4 || GATE_LATIN_STOPWORDS.test(withoutKana)) return false;
+      }
       // 重复虚词：go go / yeah yeah 去空格后是 gogo / yeahyeah，也算噪声。
       var repeatedLatin = cleaned.match(/^([A-Za-z]{2,6})\1+$/i);
       if (repeatedLatin !== null && GATE_LATIN_STOPWORDS.test(repeatedLatin[1])) return false;
