@@ -80,6 +80,18 @@
       },
       "versions": [
         {
+          "version": "0.7.14",
+          "publishTimestamp": 1794229829,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/BeepFlyer/dsh-voice-chat-mode",
+            "commit": "d2ffca9083b5737317bf1e917c65883548b4a0e7"
+          },
+          "engines": {
+            "dsh": ">=0.2.0"
+          }
+        },
+        {
           "version": "0.7.13",
           "publishTimestamp": 1794209398,
           "source": {
