@@ -332,6 +332,7 @@
       'settings.marker': '语音消息标记',
       'settings.markerHint': '加在语音提交的消息前面；留空则不标记。',
       'settings.diag': '诊断（最近 24 条引擎事件）',
+      'settings.diagPath': '完整日志在 ~/.dsh/voice-mode/diag-YYYY-MM-DD.jsonl',
       'settings.diagEmpty': '还没有事件。',
       'settings.ttsTest': '播放测试',
       'settings.ttsTestHint': '用系统语音念一句测试话；听不到就是系统语音/扬声器问题。',
@@ -494,6 +495,7 @@
       'settings.marker': 'Voice message marker',
       'settings.markerHint': 'Prefixed to messages sent by voice; leave empty to disable.',
       'settings.diag': 'Diagnostics (last 24 engine events)',
+      'settings.diagPath': 'Full log: ~/.dsh/voice-mode/diag-YYYY-MM-DD.jsonl',
       'settings.diagEmpty': 'No events yet.',
       'settings.ttsTest': 'Test playback',
       'settings.ttsTestHint': 'Speak a test sentence with the system voice; silence means a system-voice or speaker problem.',
@@ -1227,6 +1229,10 @@
       this.lastSubmitAt = 0;
       this.lastFrameAt = 0;
       this.events = [];
+      this.diagBuffer = [];
+      this.diagTimer = null;
+      this.diagFlushing = false;
+      this.diagFailureLogged = false;
       this.watchdogTimer = null;
       this.idleTimer = null;
       this.noticeTimer = null;
@@ -1317,6 +1323,94 @@
       try {
         if (typeof console !== 'undefined' && console.debug) console.debug('[voice-mode]', entry.kind, entry.detail);
       } catch (_error) {}
+      try {
+        this.queueDiag(entry);
+      } catch (_error) {}
+    };
+
+    // ── 诊断落盘：批量 POST 给 Host（失败静默，绝不影响语音） ──
+    var DIAG_URL = '/api/voice-mode.log';
+    var DIAG_FLUSH_MS = 2000;
+    var DIAG_BATCH_MAX = 500;
+
+    VoiceEngine.prototype.queueDiag = function (entry) {
+      this.diagBuffer.push(entry);
+      if (this.diagBuffer.length > DIAG_BATCH_MAX) this.diagBuffer.splice(0, this.diagBuffer.length - DIAG_BATCH_MAX);
+      // state / control 最需要实时性：立刻发，不等 2s。
+      if (entry.kind === 'state' || entry.kind === 'control') {
+        this.flushDiag();
+        return;
+      }
+      this.scheduleDiag();
+    };
+
+    VoiceEngine.prototype.scheduleDiag = function () {
+      if (this.diagTimer !== null) return;
+      var self = this;
+      this.diagTimer = setTimeout(function () {
+        self.diagTimer = null;
+        self.flushDiag();
+      }, DIAG_FLUSH_MS);
+    };
+
+    VoiceEngine.prototype.flushDiag = function (final) {
+      if (this.diagTimer !== null) {
+        clearTimeout(this.diagTimer);
+        this.diagTimer = null;
+      }
+      if (this.diagFlushing === true) return;
+      if (this.diagBuffer.length === 0) return;
+      var batch = this.diagBuffer.splice(0, DIAG_BATCH_MAX);
+      var self = this;
+      this.diagFlushing = true;
+      try {
+        var controller = typeof AbortController === 'function' ? new AbortController() : null;
+        var timer = null;
+        if (controller !== null) {
+          timer = setTimeout(function () {
+            try {
+              controller.abort();
+            } catch (_error) {}
+          }, 5000);
+        }
+        fetch(DIAG_URL, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ events: batch }),
+          signal: controller === null ? undefined : controller.signal
+        })
+          .then(function (response) {
+            return response.ok ? response.json().catch(function () { return null; }) : null;
+          })
+          .then(function (body) {
+            if (timer !== null) clearTimeout(timer);
+            if (body !== null && body && body.ok === true) {
+              self.diagFailureLogged = false;
+              return;
+            }
+            self.diagFailed();
+          })
+          .catch(function () {
+            if (timer !== null) clearTimeout(timer);
+            self.diagFailed();
+          })
+          .then(function () {
+            self.diagFlushing = false;
+            if (final !== true && self.diagBuffer.length > 0) self.scheduleDiag();
+          });
+      } catch (_error) {
+        this.diagFlushing = false;
+        this.diagFailed();
+      }
+    };
+
+    VoiceEngine.prototype.diagFailed = function () {
+      if (this.diagFailureLogged === true) return;
+      this.diagFailureLogged = true;
+      // 只记一条失败标记；此批已丢弃，不重试。
+      this.events.push({ t: Date.now(), kind: 'log', detail: 'diag upload failed' });
+      if (this.events.length > 60) this.events.shift();
     };
 
     VoiceEngine.prototype.getDiagnostics = function () {
@@ -1450,6 +1544,7 @@
       this.narratedTurn = -1;
       this.level = 0;
       this.setState(STATE.OFF, null, null, null);
+      this.flushDiag(true);
     };
 
     VoiceEngine.prototype.teardownAudio = function () {
@@ -2565,6 +2660,7 @@
 
     VoiceEngine.prototype.dispose = function () {
       var sessionId = this.sessionId;
+      this.flushDiag(true);
       this.generation += 1;
       this.clearIdle();
       this.stopMessageWatch();
@@ -3873,6 +3969,7 @@
               'details',
               { style: { marginTop: 6 } },
               React.createElement('summary', { style: { cursor: 'pointer', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' } }, t('settings.diag')),
+              React.createElement('div', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', margin: '4px 0 6px' } }, t('settings.diagPath')),
               React.createElement(
                 'pre',
                 {

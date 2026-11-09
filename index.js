@@ -16,9 +16,9 @@
 // ─────────────────────────────────────────────────────────────
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -27,6 +27,15 @@ const execFileAsync = promisify(execFile);
 
 const ROUTE_PATH = '/api/voice-mode.tts';
 const CONTROL_PATH = '/api/voice-mode.control';
+const DIAG_PATH = '/api/voice-mode.log';
+const DIAG_MAX_BYTES = 4 * 1024 * 1024;
+const DIAG_MAX_EVENTS = 500;
+const diagMarkerWritten = new Set();
+
+function localDay(date) {
+  const pad = (value) => String(value).padStart(2, '0');
+  return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate());
+}
 const pluginDir = path.dirname(fileURLToPath(import.meta.url));
 // 自带依赖目录：npm 包内包含 edge-tts 及其依赖（vendor/python），
 // 优先用它而不是系统 site-packages，避免 DSH 重建运行时后丢包。
@@ -300,6 +309,68 @@ async function handleControl(request) {
   return Response.json({ ok: true }, { headers: { 'cache-control': 'no-store' } });
 }
 
+// 诊断日志落盘：客户端把内存事件批量 POST 到这里，按本地日期追加 JSONL。
+// 4MB 封顶，超出后停止写事件并只追加一行 diag file full。
+async function handleDiagLog(request) {
+  if (request.method !== 'POST') {
+    return Response.json({ ok: false, error: 'method-not-allowed' }, { status: 405, headers: { 'cache-control': 'no-store' } });
+  }
+  try {
+    let payload;
+    try {
+      payload = await request.json();
+    } catch (_error) {
+      return badRequest('body must be JSON');
+    }
+    if (payload === null || typeof payload !== 'object' || !Array.isArray(payload.events)) {
+      return badRequest('events must be an array');
+    }
+    const lines = [];
+    for (const event of payload.events.slice(0, DIAG_MAX_EVENTS)) {
+      if (event === null || typeof event !== 'object') continue;
+      const t = Number(event.t);
+      if (!Number.isFinite(t)) continue;
+      const kind = String(event.kind === undefined ? '' : event.kind).slice(0, 120);
+      const detail = String(event.detail === undefined ? '' : event.detail).slice(0, 2000);
+      lines.push(JSON.stringify({ t, kind, detail }));
+    }
+    const dir = path.join(homedir(), '.dsh', 'voice-mode');
+    mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, 'diag-' + localDay(new Date()) + '.jsonl');
+    let size = 0;
+    try {
+      size = statSync(file).size;
+    } catch (_error) {}
+    let written = 0;
+    if (lines.length > 0 && size < DIAG_MAX_BYTES) {
+      const remaining = DIAG_MAX_BYTES - size;
+      const accepted = [];
+      let used = 0;
+      for (const line of lines) {
+        const bytes = Buffer.byteLength(line, 'utf8') + 1;
+        if (used + bytes > remaining) break;
+        accepted.push(line);
+        used += bytes;
+      }
+      if (accepted.length > 0) {
+        appendFileSync(file, accepted.join('\n') + '\n', 'utf8');
+        written = accepted.length;
+        size += used;
+      }
+    }
+    if (size >= DIAG_MAX_BYTES && !diagMarkerWritten.has(file)) {
+      diagMarkerWritten.add(file);
+      appendFileSync(file, JSON.stringify({ t: Date.now(), kind: 'log', detail: 'diag file full' }) + '\n', 'utf8');
+    }
+    return Response.json({ ok: true, written }, { headers: { 'cache-control': 'no-store' } });
+  } catch (error) {
+    return Response.json(
+      { ok: false, error: String((error && error.message) || error) },
+      { status: 500, headers: { 'cache-control': 'no-store' } }
+    );
+  }
+}
+
 const VOICE_MODE_PROMPT = [
   'The DSH window may run the voice-chat-mode plugin, which listens through the microphone and reads replies aloud. Facts you can rely on:',
   '- A user message whose text starts with `[语音] ` was spoken aloud and transcribed locally; treat it as an ordinary request.',
@@ -403,6 +474,12 @@ export function apply(ctx) {
       methods: ['GET', 'POST'],
       requestBody: 'buffered',
       fetch: (request) => handleControl(request)
+    }));
+    disposers.push(c.connection.fetch.register({
+      path: DIAG_PATH,
+      methods: ['POST'],
+      requestBody: 'buffered',
+      fetch: (request) => handleDiagLog(request)
     }));
   });
   ctx.inject(['tools'], (c) => {
