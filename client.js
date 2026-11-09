@@ -1778,6 +1778,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       this.sessionRef = null;
       this.eventUnsubscribe = null;
       this.lastEventSeq = 0;
+      this.lastEventCount = 0;
       this.ttsRouteInfo = null;
       this.ttsFallbackAt = null;
       this.pendingSpeeches = [];
@@ -2219,16 +2220,26 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
 
     VoiceEngine.prototype.onSessionEvents = function (windowSnapshot) {
       if (!windowSnapshot || !Array.isArray(windowSnapshot.entries)) return;
-      for (var index = 0; index < windowSnapshot.entries.length; index += 1) {
-        var entry = windowSnapshot.entries[index];
+      var entries = windowSnapshot.entries;
+      // 宿主不保证给 event.seq。0.2.2-rc.1 上实测缺失：seq 缺失时若仍按
+      // “seq <= lastEventSeq 才跳过”，0 <= 0 会把每一条都吞掉（静默、无日志）。
+      // 缺 seq 就退化成“只处理窗口尾部新追加的条目”：长度增加时从未见过的
+      // 位置往后读；窗口回卷（变短）时从头扫。
+      var fallbackStart = entries.length >= this.lastEventCount ? this.lastEventCount : 0;
+      for (var index = 0; index < entries.length; index += 1) {
+        var entry = entries[index];
         if (!entry || entry.type !== 'event' || !entry.event) continue;
         var event = entry.event;
-        var seq = typeof event.seq === 'number' ? event.seq : 0;
-        if (seq <= this.lastEventSeq) continue;
-        this.lastEventSeq = seq;
+        if (typeof event.seq === 'number') {
+          if (event.seq <= this.lastEventSeq) continue;
+          this.lastEventSeq = event.seq;
+        } else if (index < fallbackStart) {
+          continue;
+        }
         if (event.type === 'assistant/message') this.onAssistantMessage(event);
         else if (event.type === 'turn/end') this.onTurnEnd(event);
       }
+      this.lastEventCount = entries.length;
     };
 
     VoiceEngine.prototype.startMessageWatch = async function (generation) {
@@ -2248,11 +2259,15 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
         var source = binding.eventSource;
         var snapshot = typeof source.getSnapshot === 'function' ? source.getSnapshot() : null;
         this.lastEventSeq = 0;
+        this.lastEventCount = 0;
+        var seqSeen = false;
         if (snapshot && Array.isArray(snapshot.entries)) {
+          this.lastEventCount = snapshot.entries.length;
           for (var index = 0; index < snapshot.entries.length; index += 1) {
             var entry = snapshot.entries[index];
-            if (entry && entry.type === 'event' && entry.event && typeof entry.event.seq === 'number' && entry.event.seq > this.lastEventSeq) {
-              this.lastEventSeq = entry.event.seq;
+            if (entry && entry.type === 'event' && entry.event && typeof entry.event.seq === 'number') {
+              seqSeen = true;
+              if (entry.event.seq > this.lastEventSeq) this.lastEventSeq = entry.event.seq;
             }
           }
         }
@@ -2264,7 +2279,8 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
         });
         // 订阅后补读一次，覆盖「初始快照之后、订阅生效之前」到达的事件。
         if (typeof source.getSnapshot === 'function') this.onSessionEvents(source.getSnapshot());
-        this.logEvent('tts', 'watching assistant messages');
+        // 把去重依据记进诊断：宿主是否给 seq、窗口有多少条 —— 排查丢事件时先看这行。
+        this.logEvent('tts', 'watching assistant messages (seq=' + (seqSeen ? 'yes' : 'no') + ', entries=' + this.lastEventCount + ')');
       } catch (error) {
         if (reference !== null) {
           try {
@@ -2289,6 +2305,7 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
         this.sessionRef = null;
       }
       this.lastEventSeq = 0;
+      this.lastEventCount = 0;
     };
 
     VoiceEngine.prototype.refreshTts = function () {
@@ -2869,6 +2886,11 @@ const TYPERT_REMOTE = createTypertRemoteInfo({
       if (cleaned.length < CONFIG.minChars) return false;
       // 假名：只在「整句纯假名且 ≤4 个」时才丢（よね / きや）。ありがとう 这种正常短句放行。
       if (GATE_KANA_SHORT.test(cleaned)) return false;
+      // 重复虚词：go go / yeah yeah 去空格后是 gogo / yeahyeah，也算噪声。
+      var repeatedLatin = cleaned.match(/^([A-Za-z]{2,6})\1+$/i);
+      if (repeatedLatin !== null && GATE_LATIN_STOPWORDS.test(repeatedLatin[1])) return false;
+      // 单字重复三次以上：对对对 / 哈哈哈 / 嗯嗯嗯
+      if (/^(.)\1{2,}$/u.test(cleaned)) return false;
       // 纯拉丁字母：命中虚词表，或短于 4 个字母的零碎，都丢。
       if (/^[A-Za-z]+$/.test(cleaned)) {
         if (GATE_LATIN_STOPWORDS.test(cleaned)) return false;
