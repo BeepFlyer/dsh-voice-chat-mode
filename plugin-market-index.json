@@ -1,133 +1,145 @@
-﻿{
-    "format":  1,
-    "title":  {
-                  "en":  "DSH Voice Chat Mode",
-                  "zh":  "DSH 语音聊天模式"
-              },
-    "description":  {
-                        "en":  "Community index for voice chat plugins for DeepSeek Harness.",
-                        "zh":  "DeepSeek Harness 语音聊天插件的社区索引。"
-                    },
-    "metadata":  {
-                     "categories":  {
-                                        "voice":  {
-                                                      "title":  {
-                                                                    "en":  "Voice",
-                                                                    "zh":  "语音"
-                                                                }
-                                                  }
-                                    },
-                     "labels":  {
-                                    "chinese":  {
-                                                    "title":  {
-                                                                  "en":  "Chinese",
-                                                                  "zh":  "中文"
-                                                              }
-                                                },
-                                    "tts":  {
-                                                "title":  {
-                                                              "en":  "TTS",
-                                                              "zh":  "语音合成"
-                                                          }
-                                            },
-                                    "asr":  {
-                                                "title":  {
-                                                              "en":  "Speech to text",
-                                                              "zh":  "语音识别"
-                                                          }
-                                            },
-                                    "local":  {
-                                                  "title":  {
-                                                                "en":  "Local first",
-                                                                "zh":  "本地优先"
-                                                            }
-                                              }
-                                }
-                 },
-    "plugins":  [
-                    {
-                        "name":  "dsh-voice-chat-mode",
-                        "title":  {
-                                      "en":  "Voice Chat Mode",
-                                      "zh":  "语音聊天模式"
-                                  },
-                        "description":  {
-                                            "en":  "Always-on VAD listening, local SenseVoice transcription, auto-submit, and Edge TTS / system read-aloud with a settings UI and a model tool.",
-                                            "zh":  "常驻 VAD 监听、本地 SenseVoice 转写、自动提交，以及 Edge TTS / 系统语音播报；带设置页与模型可调用的 voice_mode 工具。"
-                                        },
-                        "icon":  "icon.svg",
-                        "author":  "BeepFlyer",
-                        "homepage":  "https://github.com/BeepFlyer/dsh-voice-chat-mode",
-                        "repository":  {
-                                           "url":  "https://github.com/BeepFlyer/dsh-voice-chat-mode"
-                                       },
-                        "metadata":  {
-                                         "category":  "voice",
-                                         "keywords":  [
-                                                          "voice",
-                                                          "tts",
-                                                          "asr",
-                                                          "edge-tts",
-                                                          "sensevoice",
-                                                          "chinese"
-                                                      ],
-                                         "labels":  [
-                                                        "chinese",
-                                                        "tts",
-                                                        "asr",
-                                                        "local"
-                                                    ]
-                                     },
-                        "versions":  [
-                                         {
-                                             "version":  "0.7.12",
-                                             "publishTimestamp":  1794223890,
-                                             "source":  {
-                                                            "type":  "git",
-                                                            "url":  "https://github.com/BeepFlyer/dsh-voice-chat-mode",
-                                                            "commit":  "1aaaff9e54c8e43bb93487954aa68d4d7ccad607"
-                                                        },
-                                             "engines":  {
-                                                             "dsh":  "\u003e=0.2.0"
-                                                         }
-                                         },
-                                         {
-                                             "version":  "0.7.11",
-                                             "publishTimestamp":  1794147748,
-                                             "source":  {
-                                                            "type":  "git",
-                                                            "url":  "https://github.com/BeepFlyer/dsh-voice-chat-mode",
-                                                            "commit":  "aa6d8a47f76e68fad11bec8d810ec17b655bba80"
-                                                        },
-                                             "engines":  {
-                                                             "dsh":  "\u003e=0.2.0"
-                                                         }
-                                         },
-                                         {
-                                             "version":  "0.7.10",
-                                             "publishTimestamp":  1794088005,
-                                             "source":  {
-                                                            "type":  "git",
-                                                            "url":  "https://github.com/BeepFlyer/dsh-voice-chat-mode",
-                                                            "commit":  "50301f83f67b83bb028c0caaed178c37447355d8"
-                                                        },
-                                             "engines":  {
-                                                             "dsh":  "\u003e=0.2.0"
-                                                         }
-                                         },
-                                         {
-                                             "version":  "0.7.9",
-                                             "publishTimestamp":  1793979871,
-                                             "source":  {
-                                                            "type":  "git",
-                                                            "url":  "https://github.com/BeepFlyer/dsh-voice-chat-mode",
-                                                            "commit":  "596717d33adf2691f5c428c936d58fdaaa4f725c"
-                                                        },
-                                             "engines":  {
-                                                             "dsh":  "\u003e=0.2.0"
-                                                         }
-                                         }
-                                     ]
-                    }
-                ]
+{
+  "format": 1,
+  "title": {
+    "en": "DSH Voice Chat Mode",
+    "zh": "DSH 语音聊天模式"
+  },
+  "description": {
+    "en": "Community index for voice chat plugins for DeepSeek Harness.",
+    "zh": "DeepSeek Harness 语音聊天插件的社区索引。"
+  },
+  "metadata": {
+    "categories": {
+      "voice": {
+        "title": {
+          "en": "Voice",
+          "zh": "语音"
+        }
+      }
+    },
+    "labels": {
+      "chinese": {
+        "title": {
+          "en": "Chinese",
+          "zh": "中文"
+        }
+      },
+      "tts": {
+        "title": {
+          "en": "TTS",
+          "zh": "语音合成"
+        }
+      },
+      "asr": {
+        "title": {
+          "en": "Speech to text",
+          "zh": "语音识别"
+        }
+      },
+      "local": {
+        "title": {
+          "en": "Local first",
+          "zh": "本地优先"
+        }
+      }
+    }
+  },
+  "plugins": [
+    {
+      "name": "dsh-voice-chat-mode",
+      "title": {
+        "en": "Voice Chat Mode",
+        "zh": "语音聊天模式"
+      },
+      "description": {
+        "en": "Always-on VAD listening, local SenseVoice transcription, auto-submit, and Edge TTS / system read-aloud with a settings UI and a model tool.",
+        "zh": "常驻 VAD 监听、本地 SenseVoice 转写、自动提交，以及 Edge TTS / 系统语音播报；带设置页与模型可调用的 voice_mode 工具。"
+      },
+      "icon": "icon.svg",
+      "author": "BeepFlyer",
+      "homepage": "https://github.com/BeepFlyer/dsh-voice-chat-mode",
+      "repository": {
+        "url": "https://github.com/BeepFlyer/dsh-voice-chat-mode"
+      },
+      "metadata": {
+        "category": "voice",
+        "keywords": [
+          "voice",
+          "tts",
+          "asr",
+          "edge-tts",
+          "sensevoice",
+          "chinese"
+        ],
+        "labels": [
+          "chinese",
+          "tts",
+          "asr",
+          "local"
+        ]
+      },
+      "versions": [
+        {
+          "version": "0.7.13",
+          "publishTimestamp": 1794209398,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/BeepFlyer/dsh-voice-chat-mode",
+            "commit": "5de8619647f4d5b85da63d83bb0b636607b4a33d"
+          },
+          "engines": {
+            "dsh": ">=0.2.0"
+          }
+        },
+        {
+          "version": "0.7.12",
+          "publishTimestamp": 1794223890,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/BeepFlyer/dsh-voice-chat-mode",
+            "commit": "1aaaff9e54c8e43bb93487954aa68d4d7ccad607"
+          },
+          "engines": {
+            "dsh": ">=0.2.0"
+          }
+        },
+        {
+          "version": "0.7.11",
+          "publishTimestamp": 1794147748,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/BeepFlyer/dsh-voice-chat-mode",
+            "commit": "aa6d8a47f76e68fad11bec8d810ec17b655bba80"
+          },
+          "engines": {
+            "dsh": ">=0.2.0"
+          }
+        },
+        {
+          "version": "0.7.10",
+          "publishTimestamp": 1794088005,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/BeepFlyer/dsh-voice-chat-mode",
+            "commit": "50301f83f67b83bb028c0caaed178c37447355d8"
+          },
+          "engines": {
+            "dsh": ">=0.2.0"
+          }
+        },
+        {
+          "version": "0.7.9",
+          "publishTimestamp": 1793979871,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/BeepFlyer/dsh-voice-chat-mode",
+            "commit": "596717d33adf2691f5c428c936d58fdaaa4f725c"
+          },
+          "engines": {
+            "dsh": ">=0.2.0"
+          }
+        }
+      ]
+    }
+  ]
 }
