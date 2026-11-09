@@ -1596,6 +1596,7 @@
 
     VoiceEngine.prototype.onTurnEnd = function (event) {
       var data = (event && event.data) || {};
+      this.logEvent('tts', 'turn/end: turn=' + data.turn + ' lastAssistantTurn=' + this.lastAssistantTurn + ' text=' + this.lastAssistantText.length + ' narrated=' + this.narratedTurn);
       // 这一轮已经用显式口播念过了：不再回退念正文。
       if (this.narratedTurn !== -1 && (typeof data.turn !== 'number' || data.turn === this.narratedTurn)) {
         this.narratedTurn = -1;
@@ -1603,17 +1604,27 @@
         this.logEvent('tts', 'turn narrated via voice blocks; fallback skipped');
         return;
       }
-      if (this.lastAssistantText === '') return;
+      // 诊断：每个提前返回都留一行，否则"没播报"永远查不出原因（2026-11-09 排查）。
+      if (this.lastAssistantText === '') {
+        this.logEvent('tts', 'turn/end: no assistant text (turn=' + data.turn + ')');
+        return;
+      }
       // 未开麦时只念显式口播稿，不把正文前几句读出来——那是模式运行中才做的事。
       if (!this.isActive()) {
         this.lastAssistantText = '';
         this.logEvent('tts', 'idle: skip body fallback');
         return;
       }
-      if (typeof data.turn === 'number' && data.turn !== this.lastAssistantTurn) return;
+      if (typeof data.turn === 'number' && data.turn !== this.lastAssistantTurn) {
+        this.logEvent('tts', 'turn/end: turn mismatch (event=' + data.turn + ' lastAssistant=' + this.lastAssistantTurn + ')');
+        return;
+      }
       var text = this.lastAssistantText;
       this.lastAssistantText = '';
-      if (!CONFIG.ttsEnabled) return;
+      if (!CONFIG.ttsEnabled) {
+        this.logEvent('tts', 'turn/end: tts disabled');
+        return;
+      }
       var speech = pickSpeechText(text);
       if (speech === '') {
         this.logEvent('tts', 'skip: empty speech pick');
@@ -1680,6 +1691,11 @@
 
     VoiceEngine.prototype.onSessionEvents = function (windowSnapshot) {
       if (!windowSnapshot || !Array.isArray(windowSnapshot.entries)) return;
+      var beatAt = Date.now();
+      if (beatAt - (this.lastWatchBeatAt || 0) > 60000) {
+        this.lastWatchBeatAt = beatAt;
+        this.logEvent('tts', 'watch alive: entries=' + windowSnapshot.entries.length + ' lastSeq=' + this.lastEventSeq);
+      }
       var entries = windowSnapshot.entries;
       // 宿主不保证给 event.seq。0.2.2-rc.1 上实测缺失：seq 缺失时若仍按
       // “seq <= lastEventSeq 才跳过”，0 <= 0 会把每一条都吞掉（静默、无日志）。
@@ -1752,6 +1768,7 @@
     };
 
     VoiceEngine.prototype.stopMessageWatch = function () {
+      this.logEvent('tts', 'watch stopped (hadUnsub=' + (this.eventUnsubscribe !== null) + ' hadRef=' + (this.sessionRef !== null) + ')');
       if (this.eventUnsubscribe !== null) {
         try {
           this.eventUnsubscribe();
@@ -1781,6 +1798,7 @@
     // 运行中当然要挂；「未开麦时也播报」开着的时候，模式关着也要挂——
     // 否则连助手消息都收不到，口播稿根本没机会被念出来。
     VoiceEngine.prototype.maybeWatchMessages = function () {
+      this.logEvent('tts', 'maybeWatch: active=' + this.isActive() + ' idleFlag=' + (CONFIG.ttsSpeakWhenIdle === true) + ' ref=' + (this.sessionRef !== null) + ' state=' + this.state);
       if (!CONFIG.ttsEnabled) {
         this.stopMessageWatch();
         return;
