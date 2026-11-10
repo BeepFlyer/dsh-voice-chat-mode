@@ -162,6 +162,59 @@
       return next;
     }
 
+    var VAD_KEYS = ['energyThreshold', 'silenceMs', 'preRollMs', 'minSpeechMs', 'maxSeconds', 'cooldownMs', 'frameSize'];
+
+    function vadSubset(config) {
+      var out = {};
+      for (var index = 0; index < VAD_KEYS.length; index += 1) {
+        var key = VAD_KEYS[index];
+        var value = Number(config[key]);
+        if (Number.isFinite(value)) out[key] = value;
+      }
+      return out;
+    }
+
+    function syncVadToHost(config) {
+      if (typeof fetch !== 'function') return;
+      try {
+        fetch('/api/voice-mode.vad', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ config: vadSubset(config) })
+        }).catch(function () {});
+      } catch (_error) {}
+    }
+
+    async function loadVadFromHost() {
+      var controller = typeof AbortController === 'function' ? new AbortController() : null;
+      var timer = null;
+      if (controller !== null) {
+        timer = setTimeout(function () {
+          try {
+            controller.abort();
+          } catch (_error) {}
+        }, 1500);
+      }
+      try {
+        var response = await fetch('/api/voice-mode.vad', {
+          credentials: 'same-origin',
+          signal: controller === null ? undefined : controller.signal
+        });
+        if (!response.ok) return { config: null, error: 'HTTP ' + response.status };
+        var body = await response.json().catch(function () { return null; });
+        if (body === null || body === undefined) return { config: null, error: 'bad json' };
+        if (body.ok === false) return { config: null, error: String(body.error || 'read failed') };
+        return { config: body.config || null, error: '' };
+      } catch (error) {
+        var message = String((error && error.message) || error);
+        if (error && (error.name === 'AbortError' || error.name === 'TimeoutError')) message = 'timeout';
+        return { config: null, error: message };
+      } finally {
+        if (timer !== null) clearTimeout(timer);
+      }
+    }
+
     function readVoiceConfig() {
       var next = defaultsVoiceConfig();
       try {
@@ -206,6 +259,9 @@
       applyVoiceConfig(next);
       try {
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      } catch (_error) {}
+      try {
+        syncVadToHost(next);
       } catch (_error) {}
     }
 
@@ -317,6 +373,43 @@
       'notice.yielded': '已让出麦克风给另一个 DSH 窗口',
       'notice.sent': '已发送',
       'notice.empty': '没听清，已丢弃',
+      'notice.calibrateStart': '校准中：请保持安静 3 秒',
+      'notice.calibrateNeedMic': '先开麦再校准',
+      'notice.calibrateFailed': '校准失败：没取到麦克风数据',
+      'settings.calibrate': '自动校准',
+      'settings.calibrating': '校准中…',
+      'settings.calibrateHint': '点一下，保持安静约 3 秒，自动计算触发阈值（原值会被保留，可撤销）。',
+      'settings.calibrateApplied': '建议值 {value}，已应用（原值 {before}）',
+      'settings.calibrateStats': 'p50 {p50} · p90 {p90}',
+      'settings.calibrateUndo': '撤销校准',
+      'settings.calibrateFail': '校准失败：{reason}',
+      'settings.emotions': '见过的情绪：{list}',
+      'input.emotionTooltip': '最近一次语音情绪：{emotion} · 音量 {level} · {time}',
+      'input.emotionEmpty': '还没有记录到语音情绪',
+      'input.emotionLabel': '🎙 {emotion}',
+      'settings.calibrateWarn': '校准值比当前值低 {percent}%，可能采样时环境过于安静；建议在正常使用环境重新校准，或点「撤销校准」。',
+      'settings.calibrateRef': '这是临时麦克风采样的参考值；建议开麦后重新校准。',
+      'settings.currentThreshold': '当前阈值 {value}',
+      'asr.title': '识别引擎',
+      'asr.hint': '录音在 host 侧分发；Key 只存本机 ~/.dsh/voice-mode/asr.json，不会回显。',
+      'asr.engine': '引擎',
+      'asr.engine.dsh': 'DSH 内置',
+      'asr.engine.dashscope': 'DashScope（阿里云）',
+      'asr.engine.off': '关闭（调试）',
+      'asr.key': 'API Key',
+      'asr.keySet': '已设置（留空则不改）',
+      'asr.keyUnset': '未设置',
+      'asr.region': '区域',
+      'asr.region.cn-beijing': '北京',
+      'asr.region.ap-southeast-1': '新加坡',
+      'asr.region.us-east-1': '弗吉尼亚',
+      'asr.workspace': 'Workspace ID（可空）',
+      'asr.forceZh': '强制中文（language: zh）',
+      'asr.save': '保存',
+      'asr.test': '测试',
+      'asr.testOk': '调用正常（{ms}ms，返回 {len} 字）',
+      'asr.testFail': '失败：{error}',
+      'asr.saveFail': '保存失败：{error}',
       'notice.gate': '太短或没有内容，已丢弃',
       'reason.permission': '麦克风权限被拒绝或被占用',
       'reason.locked': '语音模式在另一个窗口开着',
@@ -480,6 +573,43 @@
       'notice.yielded': 'Microphone handed to another DSH window',
       'notice.sent': 'Sent',
       'notice.empty': 'Nothing recognized; dropped',
+      'notice.calibrateStart': 'Calibrating: keep quiet for 3 seconds',
+      'notice.calibrateNeedMic': 'Turn the microphone on before calibrating',
+      'notice.calibrateFailed': 'Calibration failed: no microphone data',
+      'settings.calibrate': 'Auto-calibrate',
+      'settings.calibrating': 'Calibrating…',
+      'settings.calibrateHint': 'One click, stay quiet for ~3 seconds, and the trigger threshold is computed (the previous value is kept and can be restored).',
+      'settings.calibrateApplied': 'Suggested {value}, applied (was {before})',
+      'settings.calibrateStats': 'p50 {p50} · p90 {p90}',
+      'settings.calibrateUndo': 'Undo calibration',
+      'settings.calibrateFail': 'Calibration failed: {reason}',
+      'settings.emotions': 'Emotions seen: {list}',
+      'input.emotionTooltip': 'Last voice emotion: {emotion} · level {level} · {time}',
+      'input.emotionEmpty': 'No voice emotion recorded yet',
+      'input.emotionLabel': '🎙 {emotion}',
+      'settings.calibrateWarn': 'Calibrated value is {percent}% below the current one — the sample may have been too quiet. Retry in a normal environment or undo.',
+      'settings.calibrateRef': 'Reference only: sampled with a temporary microphone. Recalibrate while voice mode is on.',
+      'settings.currentThreshold': 'Current threshold {value}',
+      'asr.title': 'Speech engine',
+      'asr.hint': 'Audio is routed on the Host; the key lives only in ~/.dsh/voice-mode/asr.json and is never echoed.',
+      'asr.engine': 'Engine',
+      'asr.engine.dsh': 'DSH built-in',
+      'asr.engine.dashscope': 'DashScope (Alibaba Cloud)',
+      'asr.engine.off': 'Off (debug)',
+      'asr.key': 'API key',
+      'asr.keySet': 'Set (leave empty to keep)',
+      'asr.keyUnset': 'Not set',
+      'asr.region': 'Region',
+      'asr.region.cn-beijing': 'Beijing',
+      'asr.region.ap-southeast-1': 'Singapore',
+      'asr.region.us-east-1': 'Virginia',
+      'asr.workspace': 'Workspace ID (optional)',
+      'asr.forceZh': 'Force Chinese (language: zh)',
+      'asr.save': 'Save',
+      'asr.test': 'Test',
+      'asr.testOk': 'OK ({ms}ms, {len} chars)',
+      'asr.testFail': 'Failed: {error}',
+      'asr.saveFail': 'Save failed: {error}',
       'notice.gate': 'Too short or empty; dropped',
       'reason.permission': 'Microphone permission denied or in use',
       'reason.locked': 'Voice mode is on in another window',
@@ -1225,6 +1355,15 @@
       this.captureStartAt = 0;
       this.lastVoiceAt = 0;
       this.voiceRun = 0;
+      this.captureRms = [];
+      this.calibrating = false;
+      this.calibrationRms = [];
+      this.calibrationTimer = null;
+      this.lastCalibration = readLastCalibration();
+      this.lastVoiceEmotion = '';
+      this.lastVoiceEmotionAt = 0;
+      this.seenEmotions = [];
+      this.recentVoiceMoments = [];
       this.interruptFlag = false;
       this.lastSubmitAt = 0;
       this.lastFrameAt = 0;
@@ -1283,6 +1422,8 @@
         noticeSeq: this.noticeSeq,
         speaking: this.speaking,
         ttsFallbackAt: this.ttsFallbackAt,
+        lastVoiceEmotion: this.lastVoiceEmotion,
+        lastVoiceEmotionAt: this.lastVoiceEmotionAt,
         ttsEnabled: CONFIG.ttsEnabled === true
       };
     };
@@ -1315,6 +1456,32 @@
       this.logEvent('state ' + state, detail || reason || '');
       this.publish();
     };
+
+    var CALIBRATION_KEY = 'voice-mode:last-calibration';
+
+    function readLastCalibration() {
+      try {
+        var raw = window.localStorage.getItem(CALIBRATION_KEY);
+        if (!raw) return null;
+        var parsed = JSON.parse(raw);
+        if (parsed && typeof parsed.before === 'number' && typeof parsed.applied === 'number') return parsed;
+        return null;
+      } catch (_error) {
+        return null;
+      }
+    }
+
+    function saveLastCalibration(value) {
+      try {
+        window.localStorage.setItem(CALIBRATION_KEY, JSON.stringify(value));
+      } catch (_error) {}
+    }
+
+    function clearLastCalibration() {
+      try {
+        window.localStorage.removeItem(CALIBRATION_KEY);
+      } catch (_error) {}
+    }
 
     VoiceEngine.prototype.logEvent = function (kind, detail) {
       var entry = { t: Date.now(), kind: String(kind), detail: detail === undefined ? '' : String(detail) };
@@ -1413,6 +1580,17 @@
       if (this.events.length > 60) this.events.shift();
     };
 
+    VoiceEngine.prototype.rememberEmotion = function (emotion) {
+      var value = String(emotion || '');
+      if (value === '') return;
+      if (this.seenEmotions.indexOf(value) < 0) {
+        this.seenEmotions.push(value);
+        if (this.seenEmotions.length > 10) this.seenEmotions.shift();
+      }
+      this.recentVoiceMoments.unshift({ emotion: value, at: Date.now(), level: this.level });
+      if (this.recentVoiceMoments.length > 5) this.recentVoiceMoments.pop();
+    };
+
     VoiceEngine.prototype.getDiagnostics = function () {
       var lines = [];
       for (var index = 0; index < this.events.length; index += 1) {
@@ -1424,6 +1602,124 @@
         lines.push(hh + ':' + mm + ':' + ss + '  ' + entry.kind + (entry.detail ? ' — ' + entry.detail : ''));
       }
       return lines.slice(-24);
+    };
+
+    // ── 自动校准：安静采样 → P50/P90 → 建议阈值（P90×3，保底 P50×4） ──
+    VoiceEngine.prototype.applyCalibrationFromRms = function (rms, mode) {
+      var round3 = function (value) { return Math.round(value * 1000) / 1000; };
+      if (!rms || rms.length < 8) {
+        this.showNotice('notice.calibrateFailed', 'err');
+        this.logEvent('calibration', 'failed: too few samples (' + String(rms ? rms.length : 0) + ', ' + mode + ')');
+        return { ok: false, reason: 'no-samples' };
+      }
+      var sorted = rms.slice().sort(function (left, right) { return left - right; });
+      var quantile = function (p) {
+        return sorted[Math.min(sorted.length - 1, Math.max(0, Math.floor((sorted.length - 1) * p)))];
+      };
+      var p50 = quantile(0.5);
+      var p90 = quantile(0.9);
+      var suggested = Math.max(p90 * 3, p50 * 4, 0.003);
+      suggested = Math.min(0.5, Math.max(0.001, Math.round(suggested * 1000) / 1000));
+      // 低于 0.008 的阈值对任何真实麦克风都没有意义：先做下限保护。
+      if (suggested < 0.008) suggested = 0.008;
+      var before = CONFIG.energyThreshold;
+      var next = readVoiceConfig();
+      next.energyThreshold = suggested;
+      saveVoiceConfig(next);
+      var dropPercent = before > 0 && suggested < before * 0.5 ? Math.round((1 - suggested / before) * 100) : 0;
+      var reference = mode === 'temp';
+      this.lastCalibration = { before: before, applied: suggested, p50: round3(p50), p90: round3(p90), at: Date.now(), reference: reference };
+      saveLastCalibration(this.lastCalibration);
+      this.logEvent('calibration', 'p50=' + round3(p50) + ' p90=' + round3(p90) + ' before=' + round3(before) + ' applied=' + suggested + ' (' + mode + ')' + (dropPercent > 0 ? ' WARN drop=' + dropPercent + '%' : ''));
+      if (dropPercent > 0) this.showNotice('settings.calibrateWarn'.replace('{percent}', String(dropPercent)), 'err');
+      this.publish();
+      return { ok: true, before: before, applied: suggested, p50: round3(p50), p90: round3(p90), dropPercent: dropPercent, reference: reference };
+    };
+
+    VoiceEngine.prototype.calibrateThreshold = function () {
+      var self = this;
+      if (this.calibrating === true) return Promise.resolve({ ok: false, reason: 'busy' });
+      if (this.isActive() !== true || this.audioCtx === null) return this.calibrateWithTempStream();
+      this.showNotice('notice.calibrateStart', 'ok');
+      this.calibrating = true;
+      this.calibrationRms = [];
+      this.logEvent('calibration', 'start 2800ms (pipeline)');
+      return new Promise(function (resolve) {
+        self.calibrationTimer = setTimeout(function () {
+          self.calibrationTimer = null;
+          self.calibrating = false;
+          var rms = self.calibrationRms;
+          self.calibrationRms = [];
+          resolve(self.applyCalibrationFromRms(rms, 'pipeline'));
+        }, 2800);
+      });
+    };
+
+    VoiceEngine.prototype.calibrateWithTempStream = async function () {
+      var self = this;
+      if (this.calibrating === true) return { ok: false, reason: 'busy' };
+      if (typeof navigator === 'undefined' || !navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+        this.showNotice('notice.calibrateFailed', 'err');
+        this.logEvent('calibration', 'failed: mediaDevices missing');
+        return { ok: false, reason: 'no-media' };
+      }
+      var stream = null;
+      var ctx = null;
+      var source = null;
+      var processor = null;
+      var mute = null;
+      var rms = [];
+      try {
+        this.showNotice('notice.calibrateStart', 'ok');
+        this.calibrating = true;
+        this.logEvent('calibration', 'start 2800ms (temp stream)');
+        stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, channelCount: 1 } });
+        var AudioCtor = window.AudioContext || window.webkitAudioContext;
+        ctx = new AudioCtor();
+        source = ctx.createMediaStreamSource(stream);
+        processor = ctx.createScriptProcessor(CONFIG.frameSize || 4096, 1, 1);
+        mute = ctx.createGain();
+        mute.gain.value = 0;
+        processor.onaudioprocess = function (event) {
+          var data = event.inputBuffer.getChannelData(0);
+          var sum = 0;
+          for (var index = 0; index < data.length; index += 1) sum += data[index] * data[index];
+          rms.push(Math.sqrt(sum / data.length));
+        };
+        source.connect(processor);
+        processor.connect(mute);
+        mute.connect(ctx.destination);
+        await new Promise(function (resolve) { setTimeout(resolve, 2800); });
+        processor.onaudioprocess = null;
+        try { processor.disconnect(); } catch (_error) {}
+        try { source.disconnect(); } catch (_error) {}
+        try { mute.disconnect(); } catch (_error) {}
+        try { await ctx.close(); } catch (_error) {}
+        stream.getTracks().forEach(function (track) { try { track.stop(); } catch (_error) {} });
+        this.calibrating = false;
+        return this.applyCalibrationFromRms(rms, 'temp');
+      } catch (error) {
+        this.calibrating = false;
+        this.showNotice('notice.calibrateFailed', 'err');
+        this.logEvent('calibration', 'failed: ' + String((error && error.message) || error));
+        try { if (processor !== null) processor.disconnect(); } catch (_error) {}
+        try { if (source !== null) source.disconnect(); } catch (_error) {}
+        try { if (ctx !== null) await ctx.close(); } catch (_error) {}
+        try { if (stream !== null) stream.getTracks().forEach(function (track) { track.stop(); }); } catch (_error) {}
+        return { ok: false, reason: 'mic-error' };
+      }
+    };
+
+    VoiceEngine.prototype.undoCalibration = function () {
+      if (this.lastCalibration === null) return false;
+      var next = readVoiceConfig();
+      next.energyThreshold = this.lastCalibration.before;
+      saveVoiceConfig(next);
+      this.logEvent('calibration', 'undo: restored ' + this.lastCalibration.before);
+      this.lastCalibration = null;
+      clearLastCalibration();
+      this.publish();
+      return true;
     };
 
     VoiceEngine.prototype.showNotice = function (text, tone) {
@@ -2101,8 +2397,46 @@
       }
     };
 
+    // 读 host 侧的 ASR 引擎名。读不到一律按 'dsh' 处理（保守：宁可多做一次检查）。
+    VoiceEngine.prototype.readAsrEngineName = async function () {
+      var controller = typeof AbortController === 'function' ? new AbortController() : null;
+      var timer = null;
+      if (controller !== null) {
+        timer = setTimeout(function () {
+          try {
+            controller.abort();
+          } catch (_error) {}
+        }, 1500);
+      }
+      try {
+        var response = await fetch('/api/voice-mode.asr/config', {
+          credentials: 'same-origin',
+          signal: controller === null ? undefined : controller.signal
+        });
+        if (!response || !response.ok) return 'dsh';
+        var body = await response.json().catch(function () {
+          return null;
+        });
+        if (body && typeof body.engine === 'string') return body.engine;
+        return 'dsh';
+      } catch (_error) {
+        return 'dsh';
+      } finally {
+        if (timer !== null) clearTimeout(timer);
+      }
+    };
+
     VoiceEngine.prototype.ensureSpeechReady = async function (generation) {
       var remote = this.ctx.remote;
+      // 云端引擎（dashscope / off）不走官方 speech 通路：识别请求发往
+      // /api/voice-mode.asr，由 host 调阿里云。此时内置语音输入 bundle 关掉也没关系
+      // —— 但 /api/speech/catalog 会 404，若不跳过就会把整个语音功能 block 掉。
+      var asrEngineName = await this.readAsrEngineName();
+      if (generation !== this.generation) return null;
+      if (asrEngineName === 'dashscope' || asrEngineName === 'off') {
+        this.logEvent('voice', 'skip speech-ready check (asr engine=' + asrEngineName + ')');
+        return 'bypass:' + asrEngineName;
+      }
       if (!remote || !remote.speech) {
         this.block('runtime', 'reason.runtime', 'remote.speech missing');
         return null;
@@ -2291,6 +2625,13 @@
       this.totalSamples += samples.length;
       this.pcmChunks.push({ data: samples, start: start });
       var time = now();
+      // 校准期间暂停 VAD：只收底噪样本，不触发录音。
+      if (this.calibrating === true) {
+        this.calibrationRms.push(rms);
+        this.prunePcm();
+        this.publish();
+        return;
+      }
       // 播报期间：默认只听不录（suppress）；开了 barge-in 才允许用说话打断。
       if (this.speaking && CONFIG.ttsBargeIn !== true) {
         this.voiceRun = 0;
@@ -2313,6 +2654,7 @@
           this.voiceRun = 0;
         }
       } else if (this.state === STATE.CAPTURING) {
+        this.captureRms.push(rms);
         if (rms > CONFIG.energyThreshold) {
           this.lastVoiceAt = time;
         } else if (time - this.lastVoiceAt >= CONFIG.silenceMs) {
@@ -2349,6 +2691,7 @@
       this.captureStartAt = now() - CONFIG.minSpeechMs;
       this.lastVoiceAt = now();
       this.voiceRun = 0;
+      this.captureRms = [];
       this.interruptFlag = this.steerArmed;
       this.resetIdle();
       this.logEvent('capture', 'triggered');
@@ -2391,6 +2734,29 @@
         this.handleFailure('reason.decode', 'no samples');
         return;
       }
+      var vadDurationMs = Math.round((samples.length / this.sampleRate) * 1000);
+      var vadRms = this.captureRms.slice();
+      this.captureRms = [];
+      var vadThreshold = CONFIG.energyThreshold;
+      var vadFrameMs = vadRms.length > 0 ? vadDurationMs / vadRms.length : 0;
+      var vadVoicedMs = 0;
+      var vadPeak = 0;
+      for (var vadIndex = 0; vadIndex < vadRms.length; vadIndex += 1) {
+        var vadValue = vadRms[vadIndex];
+        if (vadValue > vadPeak) vadPeak = vadValue;
+        if (vadValue > vadThreshold) vadVoicedMs += vadFrameMs;
+      }
+      var vadSorted = vadRms.slice().sort(function (left, right) { return left - right; });
+      var vadP90 = vadSorted.length > 0 ? vadSorted[Math.min(vadSorted.length - 1, Math.floor((vadSorted.length - 1) * 0.9))] : 0;
+      var round3 = function (value) { return Math.round(value * 1000) / 1000; };
+      this.logEvent('vad', JSON.stringify({
+        durationMs: vadDurationMs,
+        voicedMs: Math.round(vadVoicedMs),
+        voicedRatio: vadDurationMs > 0 ? Math.round((vadVoicedMs / vadDurationMs) * 100) / 100 : 0,
+        thresholdUsed: round3(vadThreshold),
+        peakRms: round3(vadPeak),
+        p90Rms: round3(vadP90)
+      }));
       var audioBase64 = null;
       try {
         audioBase64 = await this.encodeWavBase64(samples, this.sampleRate);
@@ -2399,12 +2765,14 @@
         return;
       }
       if (generation !== this.generation) return;
+      var transcribeStartedAt = Date.now();
       var result = null;
       try {
-        result = await this.ctx.remote.speech.transcribe({ audioBase64: audioBase64 }, undefined);
+        result = await this.transcribeAudio(audioBase64);
       } catch (error) {
         result = { ok: false, error: error };
       }
+      var transcribeElapsedMs = Date.now() - transcribeStartedAt;
       if (generation !== this.generation) return;
       if (!result || !result.ok) {
         if (this.bargeInRemainder !== null) {
@@ -2416,11 +2784,33 @@
       }
       var durationMs = Math.round((samples.length / this.sampleRate) * 1000);
       var text = ((result.value && result.value.text) || '').trim();
+      // 只记形状与耗时，不记识别内容：区分“真没听出”与“推理没跑成/超时”。
+      this.logEvent('asr', JSON.stringify({
+        hasResult: result !== null && result !== undefined,
+        hasValue: !!(result && result.value),
+        hasError: !!(result && result.error),
+        errorCode: (result && result.error && (result.error.code || result.error.name)) || '',
+        valueKeys: (result && result.value && typeof result.value === 'object') ? Object.keys(result.value).join(',') : '',
+        textLen: text.length,
+        rawTextType: (result && result.value) ? typeof result.value.text : 'n/a',
+        durationMs: durationMs,
+        elapsedMs: transcribeElapsedMs,
+        engine: (result && result.asrEngine) || 'dsh',
+        fallbackFrom: (result && result.asrFallbackFrom) || '',
+        emotion: (result && result.asrEmotion) || '',
+        language: (result && result.asrLanguage) || ''
+      }));
+      if (result && result.asrEmotion) {
+        this.lastVoiceEmotion = String(result.asrEmotion);
+        this.lastVoiceEmotionAt = Date.now();
+        this.rememberEmotion(this.lastVoiceEmotion);
+      }
       if (text === '') {
         if (this.bargeInRemainder !== null) {
           this.ignoredBargeIn('empty transcript');
           return;
         }
+        if (durationMs > 1500) this.showNotice('notice.empty', 'err');
         this.ignoreNoise('empty transcript (' + durationMs + 'ms audio)');
         return;
       }
@@ -2618,6 +3008,47 @@
       return bytesToBase64(bytes);
     };
 
+    VoiceEngine.prototype.callDshSpeech = async function (audioBase64) {
+      try {
+        var result = await this.ctx.remote.speech.transcribe({ audioBase64: audioBase64 }, undefined);
+        return result !== null && typeof result === 'object' ? result : { ok: false, error: result };
+      } catch (error) {
+        return { ok: false, error: error };
+      }
+    };
+
+    // host 侧按 asrEngine 分发；dsh 引擎与任何失败都回落到官方 remote speech。
+    VoiceEngine.prototype.transcribeAudio = async function (audioBase64) {
+      var json = null;
+      try {
+        var response = await fetch('/api/voice-mode.asr', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ audioBase64: audioBase64, sampleRate: 16000 })
+        });
+        json = await response.json().catch(function () { return null; });
+      } catch (_error) {
+        json = null;
+      }
+      if (json !== null && json && json.ok === true) {
+        return {
+          ok: true,
+          value: { text: String(json.text || '') },
+          asrEngine: String(json.engine || 'host'),
+          asrEmotion: String(json.emotion || ''),
+          asrLanguage: String(json.language || '')
+        };
+      }
+      var code = (json && json.error) || 'asr-route-failed';
+      var dsh = await this.callDshSpeech(audioBase64);
+      if (dsh !== null && typeof dsh === 'object') {
+        dsh.asrEngine = 'dsh';
+        dsh.asrFallbackFrom = code === 'engine-dsh' ? '' : code;
+      }
+      return dsh;
+    };
+
     function writeAscii(view, offset, text) {
       for (var index = 0; index < text.length; index += 1) {
         view.setUint8(offset + index, text.charCodeAt(index));
@@ -2661,6 +3092,11 @@
     VoiceEngine.prototype.dispose = function () {
       var sessionId = this.sessionId;
       this.flushDiag(true);
+      if (this.calibrationTimer !== null) {
+        clearTimeout(this.calibrationTimer);
+        this.calibrationTimer = null;
+      }
+      this.calibrating = false;
       this.generation += 1;
       this.clearIdle();
       this.stopMessageWatch();
@@ -2679,6 +3115,92 @@
       this.level = 0;
       this.publish();
     };
+
+    // ── 输入区：最近一次语音情绪徽标（不挡麦克风按钮，不碰官方气泡渲染） ──
+    function formatClock(ms) {
+      var date = new Date(ms);
+      var pad = function (value) {
+        return ('0' + value).slice(-2);
+      };
+      return pad(date.getHours()) + ':' + pad(date.getMinutes());
+    }
+
+    function VoiceInputBadge(props) {
+      var engine = props.engine;
+      var t = props.t;
+      var snapshot = useEngineSnapshot(engine);
+      var pair = React.useState(false);
+      var expanded = pair[0];
+      var setExpanded = pair[1];
+      var at = Number(snapshot.lastVoiceEmotionAt) || 0;
+      if (at === 0 || Date.now() - at > 5 * 60 * 1000) return null;
+      var emotion = String(snapshot.lastVoiceEmotion || '');
+      var label = emotion === '' ? '?' : emotion;
+      var level = typeof snapshot.level === 'number' ? snapshot.level : 0;
+      var moments = Array.isArray(engine.recentVoiceMoments) ? engine.recentVoiceMoments : [];
+      var tip = t('input.emotionTooltip').replace('{emotion}', label).replace('{level}', level.toFixed(2)).replace('{time}', formatClock(at));
+      return React.createElement(
+        'div',
+        { style: { position: 'relative', display: 'inline-flex', alignItems: 'center' } },
+        React.createElement(
+          'button',
+          {
+            type: 'button',
+            title: tip,
+            onClick: function () {
+              setExpanded(!expanded);
+            },
+            style: {
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              padding: '2px 7px',
+              marginRight: 6,
+              borderRadius: 999,
+              border: '1px solid var(--dsw-alias-border-l1)',
+              background: 'var(--dsw-alias-bg-layer-1)',
+              color: 'var(--dsw-alias-label-secondary)',
+              cursor: 'pointer',
+              fontSize: 11,
+              font: 'inherit'
+            }
+          },
+          t('input.emotionLabel').replace('{emotion}', label)
+        ),
+        expanded
+          ? React.createElement(
+              'div',
+              {
+                style: {
+                  position: 'absolute',
+                  right: 0,
+                  bottom: '100%',
+                  marginBottom: 6,
+                  minWidth: 190,
+                  padding: '8px 10px',
+                  borderRadius: 8,
+                  border: '1px solid var(--dsw-alias-border-l1)',
+                  background: 'var(--dsw-alias-bg-layer-1)',
+                  boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+                  zIndex: 20,
+                  fontSize: 11,
+                  color: 'var(--dsw-alias-label-secondary)'
+                }
+              },
+              moments.length === 0
+                ? React.createElement('div', null, t('input.emotionEmpty'))
+                : moments.map(function (item, index) {
+                    return React.createElement(
+                      'div',
+                      { key: String(index), style: { display: 'flex', justifyContent: 'space-between', gap: 12, padding: '2px 0' } },
+                      React.createElement('span', null, t('input.emotionLabel').replace('{emotion}', String(item.emotion || '?'))),
+                      React.createElement('span', null, formatClock(Number(item.at) || 0))
+                    );
+                  })
+            )
+          : null
+      );
+    }
 
     // ── UI：顶栏右侧的开关 + 采集指示 ──
     function useEngineSnapshot(engine) {
@@ -3362,6 +3884,88 @@
       var setFlash = flashPair[1];
       var forcePair = React.useState(0);
       var force = forcePair[1];
+      var calibratingPair = React.useState(false);
+      var calibrating = calibratingPair[0];
+      var setCalibrating = calibratingPair[1];
+      var calibrationPair = React.useState(null);
+      var calibration = calibrationPair[0];
+      var setCalibration = calibrationPair[1];
+      var asrPair = React.useState(null);
+      var asrStatus = asrPair[0];
+      var setAsrStatus = asrPair[1];
+      var asrDraftPair = React.useState(null);
+      var asrDraft = asrDraftPair[0];
+      var setAsrDraft = asrDraftPair[1];
+      var asrTestPair = React.useState(null);
+      var asrTest = asrTestPair[0];
+      var setAsrTest = asrTestPair[1];
+
+      React.useEffect(function () {
+        var cancelled = false;
+        fetch('/api/voice-mode.asr/config', { credentials: 'same-origin' })
+          .then(function (response) { return response.json(); })
+          .then(function (json) {
+            if (cancelled || !json || json.ok === false) return;
+            setAsrStatus(json);
+            setAsrDraft({
+              engine: json.engine || 'dsh',
+              region: json.region || 'cn-beijing',
+              workspaceId: json.workspaceId || '',
+              language: json.language || 'zh',
+              enableItn: json.enableItn === true,
+              apiKey: ''
+            });
+          })
+          .catch(function () {});
+        return function () {
+          cancelled = true;
+        };
+      }, []);
+
+      function asrDraftPatch(patch) {
+        setAsrDraft(Object.assign({}, asrDraft || { engine: 'dsh', region: 'cn-beijing', workspaceId: '', language: 'zh', enableItn: false, apiKey: '' }, patch));
+      }
+
+      async function saveAsr() {
+        if (!asrDraft) return;
+        try {
+          var body = {
+            engine: asrDraft.engine,
+            region: asrDraft.region,
+            workspaceId: asrDraft.workspaceId,
+            language: asrDraft.language,
+            enableItn: asrDraft.enableItn === true
+          };
+          if (asrDraft.apiKey !== '') body.apiKey = asrDraft.apiKey;
+          var response = await fetch('/api/voice-mode.asr/config', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(body)
+          });
+          var json = await response.json().catch(function () { return null; });
+          if (json && json.ok !== false) {
+            setAsrStatus(json);
+            asrDraftPatch({ apiKey: '' });
+            flashSaved();
+          } else {
+            setAsrTest({ ok: false, error: (json && json.error) || 'save failed' });
+          }
+        } catch (error) {
+          setAsrTest({ ok: false, error: String((error && error.message) || error) });
+        }
+      }
+
+      async function testAsr() {
+        setAsrTest({ pending: true });
+        try {
+          var response = await fetch('/api/voice-mode.asr/test', { method: 'POST', credentials: 'same-origin' });
+          var json = await response.json().catch(function () { return null; });
+          setAsrTest(json || { ok: false, error: 'no body' });
+        } catch (error) {
+          setAsrTest({ ok: false, error: String((error && error.message) || error) });
+        }
+      }
 
       React.useEffect(function () {
         if (!props.engine || typeof props.engine.subscribe !== 'function') return undefined;
@@ -3418,6 +4022,29 @@
 
       function resetAll() {
         applyAndRefresh(defaultsVoiceConfig());
+      }
+
+      async function runCalibration() {
+        if (!props.engine || typeof props.engine.calibrateThreshold !== 'function') return;
+        setCalibrating(true);
+        setCalibration(null);
+        try {
+          var result = await props.engine.calibrateThreshold();
+          setCalibration(result || null);
+          if (result && result.ok) setValues(readVoiceConfig());
+        } catch (error) {
+          setCalibration({ ok: false, reason: String((error && error.message) || error) });
+        } finally {
+          setCalibrating(false);
+        }
+      }
+
+      function undoCalibration() {
+        if (props.engine && typeof props.engine.undoCalibration === 'function' && props.engine.undoCalibration() === true) {
+          setValues(readVoiceConfig());
+          setCalibration(null);
+          flashSaved();
+        }
       }
 
       function commitBoolean(field, checked) {
@@ -3947,6 +4574,101 @@
           React.createElement(
             'div',
             { style: { flex: '1 1 480px', minWidth: 0 } },
+            React.createElement(
+              'section',
+              { style: CARD_STYLE },
+              React.createElement('h4', { style: CARD_TITLE }, t('asr.title')),
+              React.createElement('p', { style: CARD_HINT }, t('asr.hint')),
+              asrDraft === null
+                ? React.createElement('p', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)' } }, t('asr.testFail').replace('{error}', 'loading'))
+                : React.createElement(
+                    'div',
+                    { style: { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 } },
+                    React.createElement(
+                      'label',
+                      { style: { display: 'grid', gap: 3 } },
+                      React.createElement('span', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)' } }, t('asr.engine')),
+                      React.createElement(
+                        'select',
+                        {
+                          style: SETTINGS_INPUT,
+                          value: asrDraft.engine,
+                          onChange: function (event) { asrDraftPatch({ engine: event.target.value }); }
+                        },
+                        React.createElement('option', { value: 'dsh' }, t('asr.engine.dsh')),
+                        React.createElement('option', { value: 'dashscope' }, t('asr.engine.dashscope')),
+                        React.createElement('option', { value: 'off' }, t('asr.engine.off'))
+                      )
+                    ),
+                    React.createElement(
+                      'label',
+                      { style: { display: 'grid', gap: 3 } },
+                      React.createElement('span', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)' } }, t('asr.key')),
+                      React.createElement('input', {
+                        style: SETTINGS_INPUT,
+                        type: 'password',
+                        placeholder: asrStatus && asrStatus.hasKey ? t('asr.keySet') : t('asr.keyUnset'),
+                        value: asrDraft.apiKey,
+                        onChange: function (event) { asrDraftPatch({ apiKey: event.target.value }); }
+                      })
+                    ),
+                    React.createElement(
+                      'label',
+                      { style: { display: 'grid', gap: 3 } },
+                      React.createElement('span', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)' } }, t('asr.region')),
+                      React.createElement(
+                        'select',
+                        {
+                          style: SETTINGS_INPUT,
+                          value: asrDraft.region,
+                          onChange: function (event) { asrDraftPatch({ region: event.target.value }); }
+                        },
+                        React.createElement('option', { value: 'cn-beijing' }, t('asr.region.cn-beijing')),
+                        React.createElement('option', { value: 'ap-southeast-1' }, t('asr.region.ap-southeast-1')),
+                        React.createElement('option', { value: 'us-east-1' }, t('asr.region.us-east-1'))
+                      )
+                    ),
+                    React.createElement(
+                      'label',
+                      { style: { display: 'grid', gap: 3 } },
+                      React.createElement('span', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)' } }, t('asr.workspace')),
+                      React.createElement('input', {
+                        style: SETTINGS_INPUT,
+                        value: asrDraft.workspaceId,
+                        onChange: function (event) { asrDraftPatch({ workspaceId: event.target.value }); }
+                      })
+                    )
+                  ),
+              asrDraft !== null
+                ? React.createElement(
+                    'div',
+                    { style: { display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, flexWrap: 'wrap' } },
+                    React.createElement(
+                      'label',
+                      { style: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 } },
+                      React.createElement('input', {
+                        type: 'checkbox',
+                        checked: asrDraft.language === 'zh',
+                        onChange: function (event) { asrDraftPatch({ language: event.target.checked ? 'zh' : 'auto' }); }
+                      }),
+                      t('asr.forceZh')
+                    ),
+                    React.createElement('button', { type: 'button', onClick: saveAsr, style: SETTINGS_BUTTON }, t('asr.save')),
+                    React.createElement('button', { type: 'button', onClick: testAsr, style: SETTINGS_BUTTON }, t('asr.test')),
+                    asrTest && asrTest.pending === true
+                      ? React.createElement('span', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)' } }, '…')
+                      : asrTest
+                        ? React.createElement(
+                            'span',
+                            { style: { fontSize: 11, color: asrTest.ok ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-label-danger)' } },
+                            asrTest.ok
+                              ? t('asr.testOk').replace('{ms}', String(asrTest.ms || 0)).replace('{len}', String((asrTest.text || '').length))
+                              : t('asr.testFail').replace('{error}', String(asrTest.error || 'unknown'))
+                          )
+                        : null
+                  )
+                : null
+            ),
             groups.map(renderCard),
             React.createElement(
               'div',
@@ -3963,13 +4685,54 @@
                 t('settings.ttsTest')
               ),
               React.createElement('button', { type: 'button', onClick: resetAll, style: SETTINGS_BUTTON }, t('settings.reset')),
+              React.createElement(
+                'button',
+                { type: 'button', onClick: runCalibration, disabled: calibrating, style: SETTINGS_BUTTON },
+                calibrating ? t('settings.calibrating') : t('settings.calibrate')
+              ),
+              props.engine && props.engine.lastCalibration
+                ? React.createElement('button', { type: 'button', onClick: undoCalibration, style: SETTINGS_BUTTON }, t('settings.calibrateUndo'))
+                : null,
               flash ? React.createElement('span', { style: { fontSize: 12, color: 'var(--dsw-alias-state-success-primary)' } }, flash) : null
             ),
+            React.createElement(
+              'div',
+              { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', margin: '0 0 10px' } },
+              t('settings.calibrateHint'),
+              ' · ' + t('settings.currentThreshold').replace('{value}', String(CONFIG.energyThreshold))
+            ),
+            calibration
+              ? React.createElement(
+                  'div',
+                  { style: { fontSize: 11, margin: '0 0 10px', color: calibration.ok ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-label-danger)' } },
+                  calibration.ok
+                    ? t('settings.calibrateApplied').replace('{value}', String(calibration.applied)).replace('{before}', String(calibration.before)) +
+                      ' · ' + t('settings.calibrateStats').replace('{p50}', String(calibration.p50)).replace('{p90}', String(calibration.p90))
+                    : t('settings.calibrateFail').replace('{reason}', String(calibration.reason || 'unknown'))
+                )
+              : null,
+            calibration && calibration.ok && calibration.dropPercent > 0
+              ? React.createElement(
+                  'div',
+                  { style: { fontSize: 11, margin: '0 0 10px', color: 'var(--dsw-alias-label-danger)' } },
+                  t('settings.calibrateWarn').replace('{percent}', String(calibration.dropPercent))
+                )
+              : null,
+            calibration && calibration.ok && calibration.reference === true
+              ? React.createElement(
+                  'div',
+                  { style: { fontSize: 11, margin: '0 0 10px', color: 'var(--dsw-alias-label-secondary)' } },
+                  t('settings.calibrateRef')
+                )
+              : null,
             React.createElement(
               'details',
               { style: { marginTop: 6 } },
               React.createElement('summary', { style: { cursor: 'pointer', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' } }, t('settings.diag')),
               React.createElement('div', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', margin: '4px 0 6px' } }, t('settings.diagPath')),
+              props.engine && Array.isArray(props.engine.seenEmotions) && props.engine.seenEmotions.length > 0
+                ? React.createElement('div', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)', marginBottom: 6 } }, t('settings.emotions').replace('{list}', props.engine.seenEmotions.join(', ')))
+                : null,
               React.createElement(
                 'pre',
                 {
@@ -4008,6 +4771,8 @@
             speaking: engine.isSpeaking(),
             sessionId: engine.sessionId,
             detail: engine.detail,
+            voiceEmotion: engine.lastVoiceEmotion,
+            voiceEmotionAt: engine.lastVoiceEmotionAt,
             at: Date.now()
           })
         }).catch(function () {});
@@ -4058,6 +4823,7 @@
     // ── 挂载 ──
     async function apply(ctx) {
       var disposeRemote = await ctx.remote.$mount(TYPERT_REMOTE);
+      // 激活阶段不做文件 I/O：vad.json 的读取延后到 entry 激活之后。
       // 引擎必须拿「注入后的」上下文：remote.speech / sessions 都是 inject 才能取的键，
       // 用外层 ctx 取会抛 cannot get property "remote.speech" without inject。
       var engine = null;
@@ -4066,6 +4832,32 @@
       try {
         ui = ctx.inject(['remote.speech', 'slots', 'locale', 'sessions'], function (c) {
           engine = new VoiceEngine(c);
+          // 延后读文件：读不到/超时都用 localStorage（已是 engine 初始配置）。
+          setTimeout(function () {
+            loadVadFromHost()
+              .then(function (vadFileState) {
+                try {
+                  if (vadFileState.config !== null) {
+                    var vadMerged = readVoiceConfig();
+                    var vadChanged = false;
+                    for (var vadIndex = 0; vadIndex < VAD_KEYS.length; vadIndex += 1) {
+                      var vadKey = VAD_KEYS[vadIndex];
+                      var vadValue = Number(vadFileState.config[vadKey]);
+                      if (Number.isFinite(vadValue) && vadMerged[vadKey] !== vadValue) {
+                        vadMerged[vadKey] = vadValue;
+                        vadChanged = true;
+                      }
+                    }
+                    if (vadChanged) {
+                      saveVoiceConfig(vadMerged);
+                      engine.logEvent('vad', 'applied file config');
+                    }
+                  }
+                  if (vadFileState.error !== '') engine.logEvent('vad', 'file load failed: ' + vadFileState.error);
+                } catch (_error) {}
+              })
+              .catch(function () {});
+          }, 0);
           c.effect(function () {
             return c.locale.register(NS, { zh: ZH, en: EN });
           });
@@ -4134,6 +4926,22 @@
               VoiceFallbackToast
             );
           });
+          /* 主人 2026-11-10 要求隐藏输入区情绪徽标：只注释注册，保留麦克风。
+          c.slots.inject('conversation.input.right', function () {
+            return c.slots.register(
+              {
+                name: 'conversation.input.right',
+                id: 'voice-mode-emotion',
+                order: 19,
+                locale: NS,
+                inject: function () {
+                  return { engine: engine };
+                }
+              },
+              VoiceInputBadge
+            );
+          });
+          */
           c.slots.inject('conversation.input.right', function () {
             return c.slots.register(
               {

@@ -16,7 +16,7 @@
 // ─────────────────────────────────────────────────────────────
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
@@ -28,6 +28,14 @@ const execFileAsync = promisify(execFile);
 const ROUTE_PATH = '/api/voice-mode.tts';
 const CONTROL_PATH = '/api/voice-mode.control';
 const DIAG_PATH = '/api/voice-mode.log';
+const ASR_PATH = '/api/voice-mode.asr';
+const ASR_CONFIG_PATH = '/api/voice-mode.asr/config';
+const ASR_TEST_PATH = '/api/voice-mode.asr/test';
+const ASR_FILE = path.join(homedir(), '.dsh', 'voice-mode', 'asr.json');
+const VAD_PATH = '/api/voice-mode.vad';
+const VAD_FILE = path.join(homedir(), '.dsh', 'voice-mode', 'vad.json');
+const VAD_KEYS = ['energyThreshold', 'silenceMs', 'preRollMs', 'minSpeechMs', 'maxSeconds', 'cooldownMs', 'frameSize'];
+const ASR_AUDIO_LIMIT = 10 * 1024 * 1024;
 const DIAG_MAX_BYTES = 4 * 1024 * 1024;
 const DIAG_MAX_EVENTS = 500;
 const diagMarkerWritten = new Set();
@@ -309,6 +317,270 @@ async function handleControl(request) {
   return Response.json({ ok: true }, { headers: { 'cache-control': 'no-store' } });
 }
 
+// ── ASR 引擎配置（~/.dsh/voice-mode/asr.json；Key 只在 host 侧，永不回显）──
+function asrDefaults() {
+  return {
+    engine: 'dsh',
+    dashscope: {
+      apiKey: '',
+      region: 'cn-beijing',
+      workspaceId: '',
+      language: 'zh',
+      enableItn: false,
+      timeoutMs: 15000
+    }
+  };
+}
+
+function readAsrConfig() {
+  const fallback = asrDefaults();
+  try {
+    const parsed = JSON.parse(readFileSync(ASR_FILE, 'utf8'));
+    if (parsed === null || typeof parsed !== 'object') return fallback;
+    const ds = parsed.dashscope !== null && typeof parsed.dashscope === 'object' ? parsed.dashscope : {};
+    const engine = ['dsh', 'dashscope', 'off'].includes(parsed.engine) ? parsed.engine : 'dsh';
+    const region = ['cn-beijing', 'ap-southeast-1', 'us-east-1'].includes(ds.region) ? ds.region : 'cn-beijing';
+    const timeout = Number(ds.timeoutMs);
+    return {
+      engine,
+      dashscope: {
+        apiKey: typeof ds.apiKey === 'string' ? ds.apiKey : '',
+        region,
+        workspaceId: typeof ds.workspaceId === 'string' ? ds.workspaceId : '',
+        language: typeof ds.language === 'string' && ds.language !== '' ? ds.language : 'zh',
+        enableItn: ds.enableItn === true,
+        timeoutMs: Number.isFinite(timeout) && timeout >= 1000 && timeout <= 60000 ? Math.round(timeout) : 15000
+      }
+    };
+  } catch (_error) {
+    return fallback;
+  }
+}
+
+function saveAsrConfig(next) {
+  mkdirSync(path.dirname(ASR_FILE), { recursive: true });
+  writeFileSync(ASR_FILE, JSON.stringify(next, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
+}
+
+function asrStatus() {
+  const cfg = readAsrConfig();
+  return {
+    ok: true,
+    engine: cfg.engine,
+    hasKey: cfg.dashscope.apiKey !== '',
+    region: cfg.dashscope.region,
+    workspaceId: cfg.dashscope.workspaceId,
+    language: cfg.dashscope.language,
+    enableItn: cfg.dashscope.enableItn,
+    timeoutMs: cfg.dashscope.timeoutMs
+  };
+}
+
+/** 客户端给的是 16k mono WAV；若已是 RIFF 则原样用，否则补 44 字节头（兼容裸 PCM）。 */
+function wavFromAudioBase64(audioBase64) {
+  const bytes = Buffer.from(audioBase64, 'base64');
+  if (bytes.length >= 12 && bytes.subarray(0, 4).toString('ascii') === 'RIFF') return audioBase64;
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0, 'ascii');
+  header.writeUInt32LE(36 + bytes.length, 4);
+  header.write('WAVE', 8, 'ascii');
+  header.write('fmt ', 12, 'ascii');
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(1, 22);
+  header.writeUInt32LE(16000, 24);
+  header.writeUInt32LE(32000, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write('data', 36, 'ascii');
+  header.writeUInt32LE(bytes.length, 40);
+  return Buffer.concat([header, bytes]).toString('base64');
+}
+
+function dashscopeEndpoint(cfg) {
+  const ds = cfg.dashscope;
+  if (ds.workspaceId !== '') return 'https://' + ds.workspaceId + '.' + ds.region + '.maas.aliyuncs.com/compatible-mode/v1/chat/completions';
+  const host = ds.region === 'cn-beijing' ? 'dashscope.aliyuncs.com' : 'dashscope-intl.aliyuncs.com';
+  return 'https://' + host + '/compatible-mode/v1/chat/completions';
+}
+
+async function callDashScope(audioBase64, cfg) {
+  const ds = cfg.dashscope;
+  if (ds.apiKey === '') return { ok: false, error: 'dashscope-no-key' };
+  const wavBase64 = wavFromAudioBase64(audioBase64);
+  if (wavBase64.length > ASR_AUDIO_LIMIT) return { ok: false, error: 'audio-too-large' };
+  const body = {
+    model: 'qwen3-asr-flash',
+    messages: [
+      {
+        role: 'user',
+        content: [{ type: 'input_audio', input_audio: { data: 'data:audio/wav;base64,' + wavBase64 } }]
+      }
+    ],
+    stream: false,
+    asr_options: { language: ds.language || 'zh', enable_itn: ds.enableItn === true }
+  };
+  let response;
+  try {
+    response = await fetch(dashscopeEndpoint(cfg), {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + ds.apiKey, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(ds.timeoutMs)
+    });
+  } catch (error) {
+    const name = String((error && error.name) || '');
+    const code = name === 'TimeoutError' || /timeout/i.test(name) ? 'dashscope-timeout' : 'dashscope-network';
+    return { ok: false, error: code };
+  }
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) return { ok: false, error: 'dashscope-auth' };
+    if (response.status === 429) return { ok: false, error: 'dashscope-rate-limit' };
+    return { ok: false, error: 'dashscope-http-' + response.status };
+  }
+  let data = null;
+  try {
+    data = await response.json();
+  } catch (_error) {
+    return { ok: false, error: 'dashscope-bad-json' };
+  }
+  // OpenAI 兼容端点：choices[0].message.content 是字符串；兼容旧的原生 output 形状。
+  const choices = data && Array.isArray(data.choices) ? data.choices : data && data.output && Array.isArray(data.output.choices) ? data.output.choices : [];
+  const message = choices.length > 0 ? choices[0].message : null;
+  let text = '';
+  if (message && typeof message.content === 'string') {
+    text = message.content;
+  } else if (message && Array.isArray(message.content)) {
+    text = message.content.map((part) => (typeof part === 'string' ? part : part && typeof part.text === 'string' ? part.text : '')).join('');
+  }
+  const annotation = message && Array.isArray(message.annotations) && message.annotations.length > 0 && message.annotations[0] !== null && typeof message.annotations[0] === 'object' ? message.annotations[0] : {};
+  return { ok: true, text, emotion: typeof annotation.emotion === 'string' ? annotation.emotion : '', language: typeof annotation.language === 'string' ? annotation.language : '' };
+}
+
+function pickVadConfig(input) {
+  const out = {};
+  if (input === null || typeof input !== 'object') return out;
+  for (const key of VAD_KEYS) {
+    const value = Number(input[key]);
+    if (Number.isFinite(value)) out[key] = value;
+  }
+  return out;
+}
+
+async function handleVadRoute(request) {
+  if (request.method === 'GET') {
+    try {
+      if (!existsSync(VAD_FILE)) return Response.json({ ok: true, config: null }, { headers: { 'cache-control': 'no-store' } });
+      const parsed = JSON.parse(readFileSync(VAD_FILE, 'utf8'));
+      return Response.json({ ok: true, config: pickVadConfig(parsed) }, { headers: { 'cache-control': 'no-store' } });
+    } catch (error) {
+      return Response.json({ ok: false, error: 'read failed: ' + String((error && error.message) || error) }, { headers: { 'cache-control': 'no-store' } });
+    }
+  }
+  if (request.method !== 'POST') {
+    return Response.json({ ok: false, error: 'method-not-allowed' }, { status: 405, headers: { 'cache-control': 'no-store' } });
+  }
+  try {
+    const payload = await request.json();
+    const config = pickVadConfig(payload && payload.config ? payload.config : payload);
+    if (Object.keys(config).length === 0) return badRequest('no vad fields');
+    mkdirSync(path.dirname(VAD_FILE), { recursive: true });
+    writeFileSync(VAD_FILE, JSON.stringify(config, null, 2) + '\n', 'utf8');
+    return Response.json({ ok: true, config }, { headers: { 'cache-control': 'no-store' } });
+  } catch (error) {
+    return Response.json({ ok: false, error: String((error && error.message) || error) }, { status: 500, headers: { 'cache-control': 'no-store' } });
+  }
+}
+
+async function handleAsrRoute(request) {
+  if (request.method !== 'POST') {
+    return Response.json({ ok: false, error: 'method-not-allowed' }, { status: 405, headers: { 'cache-control': 'no-store' } });
+  }
+  try {
+    let payload;
+    try {
+      payload = await request.json();
+    } catch (_error) {
+      return badRequest('body must be JSON');
+    }
+    const audioBase64 = payload && typeof payload.audioBase64 === 'string' ? payload.audioBase64 : '';
+    if (audioBase64 === '') return badRequest('audioBase64 is required');
+    if (audioBase64.length > ASR_AUDIO_LIMIT) {
+      return Response.json({ ok: false, error: 'audio-too-large', text: '' }, { status: 413, headers: { 'cache-control': 'no-store' } });
+    }
+    const cfg = readAsrConfig();
+    if (cfg.engine === 'off') {
+      return Response.json({ ok: true, text: '', engine: 'off' }, { headers: { 'cache-control': 'no-store' } });
+    }
+    if (cfg.engine === 'dsh') {
+      // 没有 host 侧 speech 服务；回 'engine-dsh'，由 client 回落到官方 remote speech。
+      return Response.json({ ok: false, error: 'engine-dsh', engine: 'dsh' }, { headers: { 'cache-control': 'no-store' } });
+    }
+    const startedAt = Date.now();
+    const result = await callDashScope(audioBase64, cfg);
+    if (!result.ok) {
+      return Response.json({ ok: false, error: result.error, engine: 'dashscope', ms: Date.now() - startedAt }, { headers: { 'cache-control': 'no-store' } });
+    }
+    return Response.json({ ok: true, text: result.text, engine: 'dashscope', ms: Date.now() - startedAt, emotion: result.emotion || '', language: result.language || '' }, { headers: { 'cache-control': 'no-store' } });
+  } catch (error) {
+    return Response.json(
+      { ok: false, error: 'asr-internal: ' + String((error && error.message) || error), text: '' },
+      { status: 500, headers: { 'cache-control': 'no-store' } }
+    );
+  }
+}
+
+async function handleAsrConfigRoute(request) {
+  if (request.method === 'GET') {
+    return Response.json(asrStatus(), { headers: { 'cache-control': 'no-store' } });
+  }
+  if (request.method !== 'POST') {
+    return Response.json({ ok: false, error: 'method-not-allowed' }, { status: 405, headers: { 'cache-control': 'no-store' } });
+  }
+  try {
+    const payload = await request.json();
+    if (payload === null || typeof payload !== 'object') return badRequest('body must be an object');
+    const cfg = readAsrConfig();
+    if (typeof payload.engine === 'string' && ['dsh', 'dashscope', 'off'].includes(payload.engine)) cfg.engine = payload.engine;
+    if (typeof payload.region === 'string' && ['cn-beijing', 'ap-southeast-1', 'us-east-1'].includes(payload.region)) cfg.dashscope.region = payload.region;
+    if (typeof payload.workspaceId === 'string') cfg.dashscope.workspaceId = payload.workspaceId.slice(0, 120);
+    if (typeof payload.language === 'string' && payload.language !== '') cfg.dashscope.language = payload.language.slice(0, 16);
+    if (typeof payload.enableItn === 'boolean') cfg.dashscope.enableItn = payload.enableItn;
+    if (typeof payload.apiKey === 'string' && payload.apiKey !== '') cfg.dashscope.apiKey = payload.apiKey.slice(0, 200);
+    if (payload.clearKey === true) cfg.dashscope.apiKey = '';
+    saveAsrConfig(cfg);
+    return Response.json(asrStatus(), { headers: { 'cache-control': 'no-store' } });
+  } catch (error) {
+    return Response.json(
+      { ok: false, error: String((error && error.message) || error) },
+      { status: 500, headers: { 'cache-control': 'no-store' } }
+    );
+  }
+}
+
+async function handleAsrTestRoute(request) {
+  if (request.method !== 'POST') {
+    return Response.json({ ok: false, error: 'method-not-allowed' }, { status: 405, headers: { 'cache-control': 'no-store' } });
+  }
+  try {
+    const cfg = readAsrConfig();
+    if (cfg.engine === 'off') return Response.json({ ok: false, error: 'engine-off' }, { headers: { 'cache-control': 'no-store' } });
+    const silence = Buffer.alloc(16000 * 2).toString('base64');
+    const startedAt = Date.now();
+    const result = await callDashScope(silence, cfg);
+    const base = { ms: Date.now() - startedAt, engine: 'dashscope' };
+    return Response.json(
+      result.ok ? { ok: true, text: result.text, emotion: result.emotion || '', language: result.language || '', ...base } : { ok: false, error: result.error, ...base },
+      { headers: { 'cache-control': 'no-store' } }
+    );
+  } catch (error) {
+    return Response.json(
+      { ok: false, error: String((error && error.message) || error) },
+      { status: 500, headers: { 'cache-control': 'no-store' } }
+    );
+  }
+}
+
 // 诊断日志落盘：客户端把内存事件批量 POST 到这里，按本地日期追加 JSONL。
 // 4MB 封顶，超出后停止写事件并只追加一行 diag file full。
 async function handleDiagLog(request) {
@@ -384,7 +656,16 @@ function voiceStateText() {
   if (clientStatus === null) return 'Voice chat mode (plugin): no DSH window has reported state yet.';
   const state = String(clientStatus.state || 'OFF');
   const speaking = clientStatus.speaking === true ? 'yes' : 'no';
-  return `Voice chat mode (plugin): state=${state}, speaking=${speaking}.`;
+  let extra = '';
+  const emotion = typeof clientStatus.voiceEmotion === 'string' ? clientStatus.voiceEmotion : '';
+  const at = Number(clientStatus.voiceEmotionAt);
+  if (emotion !== '' && Number.isFinite(at) && Date.now() - at <= 5 * 60 * 1000) {
+    const date = new Date(at);
+    const hh = String(date.getHours()).padStart(2, '0');
+    const mm = String(date.getMinutes()).padStart(2, '0');
+    extra = ' lastVoiceEmotion=' + emotion + ' lastVoiceAt=' + hh + ':' + mm;
+  }
+  return `Voice chat mode (plugin): state=${state}, speaking=${speaking}${extra}.`;
 }
 
 function sleep(ms) {
@@ -480,6 +761,30 @@ export function apply(ctx) {
       methods: ['POST'],
       requestBody: 'buffered',
       fetch: (request) => handleDiagLog(request)
+    }));
+    disposers.push(c.connection.fetch.register({
+      path: ASR_PATH,
+      methods: ['POST'],
+      requestBody: 'buffered',
+      fetch: (request) => handleAsrRoute(request)
+    }));
+    disposers.push(c.connection.fetch.register({
+      path: VAD_PATH,
+      methods: ['GET', 'POST'],
+      requestBody: 'buffered',
+      fetch: (request) => handleVadRoute(request)
+    }));
+    disposers.push(c.connection.fetch.register({
+      path: ASR_CONFIG_PATH,
+      methods: ['GET', 'POST'],
+      requestBody: 'buffered',
+      fetch: (request) => handleAsrConfigRoute(request)
+    }));
+    disposers.push(c.connection.fetch.register({
+      path: ASR_TEST_PATH,
+      methods: ['POST'],
+      requestBody: 'buffered',
+      fetch: (request) => handleAsrTestRoute(request)
     }));
   });
   ctx.inject(['tools'], (c) => {

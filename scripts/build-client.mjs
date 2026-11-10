@@ -6,6 +6,7 @@
 // 用法：node scripts/build-client.mjs
 // 可选环境变量：DSH_ASAR（app.asar 路径）、DSH_ASAR_HEADER（默认取 u32@12 作为 JSON 头长度）
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -109,4 +110,12 @@ if (checkOnly) {
 }
 
 fs.writeFileSync(target, output, 'utf8');
+// 语法自检：client.js 是浏览器模块，语法错误会让整个 DSH 启动失败（2026-11-10 踩过）。
+try {
+  execFileSync(process.execPath, ['--check', target], { stdio: 'pipe' });
+} catch (error) {
+  const detail = error && error.stderr ? String(error.stderr) : String((error && error.message) || error);
+  console.error('client.js has a syntax error:\n' + detail);
+  process.exit(1);
+}
 console.log('wrote client.js');
