@@ -20,6 +20,8 @@
 
 DSH's built-in voice input can transcribe, but the interaction chain is missing: always-on listening, auto submit, switchable cloud ASR, voice-note scripts, and a model-controlled microphone. This plugin connects them, with one rule: **audio is transcribed locally by default; the cloud engine is opt-in**.
 
+![Voice demo](docs/demo.gif)
+
 ![Settings](docs/settings-asr.png)
 
 ## Features

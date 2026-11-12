@@ -27,7 +27,8 @@
     "docs/*.png",
     "test/*.mjs",
     "ACCEPTANCE-edge-tts.md",
-    "plugin-market-index.json"
+    "plugin-market-index.json",
+    "docs/*.gif"
   ],
   "keywords": [
     "dsh",
