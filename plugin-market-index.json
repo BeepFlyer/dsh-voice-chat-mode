@@ -52,8 +52,8 @@
         "zh": "语音聊天模式"
       },
       "description": {
-        "en": "Always-on VAD listening, local SenseVoice transcription, auto-submit, and Edge TTS / system read-aloud with a settings UI and a model tool.",
-        "zh": "常驻 VAD 监听、本地 SenseVoice 转写、自动提交，以及 Edge TTS / 系统语音播报；带设置页与模型可调用的 voice_mode 工具。"
+        "en": "Always-on VAD listening, local SenseVoice or DashScope transcription, auto-submit, VAD calibration, and Edge TTS / system read-aloud with a settings UI and a model tool.",
+        "zh": "常驻 VAD 监听、本地 SenseVoice 或 DashScope 转写、自动提交、VAD 自动校准，以及 Edge TTS / 系统语音播报；带设置页与模型可调用的 voice_mode 工具。"
       },
       "icon": "icon.svg",
       "author": "BeepFlyer",
@@ -79,6 +79,18 @@
         ]
       },
       "versions": [
+        {
+          "version": "0.8.0",
+          "publishTimestamp": 1794534550,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/BeepFlyer/dsh-voice-chat-mode",
+            "commit": "e8780b2beebc173de6db29492f7d0293085d1ace"
+          },
+          "engines": {
+            "dsh": ">=0.2.0"
+          }
+        },
         {
           "version": "0.7.14",
           "publishTimestamp": 1794229829,
