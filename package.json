@@ -22,7 +22,12 @@
     "icon.svg",
     "README.md",
     "LICENSE",
-    "vendor/python/**"
+    "vendor/python/**",
+    "README.en.md",
+    "docs/*.png",
+    "test/*.mjs",
+    "ACCEPTANCE-edge-tts.md",
+    "plugin-market-index.json"
   ],
   "keywords": [
     "dsh",
